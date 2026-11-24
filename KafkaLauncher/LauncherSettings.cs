@@ -24,6 +24,7 @@ namespace KafkaLauncher
         public bool AutoScrollLog { get; set; } = true;
         public string BootstrapServer { get; set; } = "localhost:9092";
         public string LastClusterId { get; set; } = string.Empty;
+        public string JsonExtractPath { get; set; } = string.Empty;
 
         public static string SettingsFilePath =>
             Path.Combine(

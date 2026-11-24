@@ -38,12 +38,15 @@ namespace KafkaLauncher
         private readonly object _liveLock = new object();
         private readonly ObservableCollection<KafkaMessageRecord> _liveMessages = new ObservableCollection<KafkaMessageRecord>();
         private readonly DispatcherTimer _uiFlushTimer;
+        private readonly DispatcherTimer _dashboardTimer;
+        private bool _isRefreshingDashboard = false;
 
         private LauncherSettings _settings;
         private List<KafkaTopicSummary> _allTopics = new List<KafkaTopicSummary>();
         private List<KafkaMessageRecord> _fetchedMessages = new List<KafkaMessageRecord>();
         private List<KafkaPartitionInfo> _currentPartitions = new List<KafkaPartitionInfo>();
         private int _liveMessageTotalCount = 0;
+        private string _currentJsonExtractPath = string.Empty;
         private bool _isInitializing = true;
         private bool _isClosing = false;
 
@@ -62,6 +65,7 @@ namespace KafkaLauncher
             _isInitializing = false;
 
             ApplyRunModeUi(GetSelectedRunMode());
+            ApplyJsonExtractPath(_settings.JsonExtractPath, refreshExisting: false);
             UpdateProcessStateUi(zkRunning: false, kafkaRunning: false);
             ResetPartitionDropdowns(0);
 
@@ -85,6 +89,20 @@ namespace KafkaLauncher
             _uiFlushTimer.Tick += UiFlushTimer_Tick;
             _uiFlushTimer.Start();
 
+            // Kafka UI 스타일 클러스터 대시보드 5초 자동 갱신 타이머
+            _dashboardTimer = new DispatcherTimer(DispatcherPriority.Background, Dispatcher)
+            {
+                Interval = TimeSpan.FromSeconds(5)
+            };
+            _dashboardTimer.Tick += async (s, e) =>
+            {
+                if (_isClosing || _isRefreshingDashboard) return;
+                if (MainTabs.SelectedIndex == 1 && ExplorerTabs.SelectedIndex == 0 && ChkDashboardAutoRefresh.IsChecked == true)
+                {
+                    await RefreshDashboardAsync(showErrorDialog: false);
+                }
+            };
+
             Loaded += async (s, e) => await CheckJavaEnvironmentAsync(logResult: true);
         }
 
@@ -104,6 +122,7 @@ namespace KafkaLauncher
             ChkNewWindow.IsChecked = s.OpenInNewWindow;
             ChkAutoScroll.IsChecked = s.AutoScrollLog;
             TxtBootstrapServer.Text = s.BootstrapServer ?? "localhost:9092";
+            TxtJsonExtractPath.Text = s.JsonExtractPath ?? string.Empty;
 
             if (s.RunMode == KafkaRunMode.KRaft)
                 RbModeKRaft.IsChecked = true;
@@ -125,6 +144,7 @@ namespace KafkaLauncher
             _settings.OpenInNewWindow = ChkNewWindow.IsChecked == true;
             _settings.AutoScrollLog = ChkAutoScroll.IsChecked == true;
             _settings.BootstrapServer = TxtBootstrapServer.Text?.Trim() ?? "localhost:9092";
+            _settings.JsonExtractPath = TxtJsonExtractPath.Text?.Trim() ?? string.Empty;
         }
 
         private KafkaRunMode GetSelectedRunMode()
@@ -712,12 +732,74 @@ namespace KafkaLauncher
             {
                 SetExplorerButtonsEnabled(true);
             }
+
+            // 클러스터 상태 탭을 보고 있는 경우에만 버튼 잠금 해제 후 비동기로 대시보드 갱신
+            if (_allTopics.Count > 0 && ExplorerTabs.SelectedIndex == 0)
+            {
+                await RefreshDashboardAsync(showErrorDialog: false);
+            }
         }
 
         private void ChkHideInternalTopics_Changed(object sender, RoutedEventArgs e)
         {
             if (_isInitializing) return;
             ApplyTopicFilter(SelectedTopic?.Name);
+        }
+
+        private void BtnApplyJsonPath_Click(object sender, RoutedEventArgs e)
+        {
+            ApplyJsonExtractPath(TxtJsonExtractPath.Text, refreshExisting: true);
+            CaptureSettingsFromUi();
+            _settings.Save();
+        }
+
+        private void TxtJsonExtractPath_KeyDown(object sender, KeyEventArgs e)
+        {
+            if (e.Key == Key.Enter)
+            {
+                ApplyJsonExtractPath(TxtJsonExtractPath.Text, refreshExisting: true);
+                CaptureSettingsFromUi();
+                _settings.Save();
+            }
+        }
+
+        private void ApplyJsonExtractPath(string rawPath, bool refreshExisting)
+        {
+            _currentJsonExtractPath = rawPath?.Trim() ?? string.Empty;
+            bool hasCustomPath = !string.IsNullOrEmpty(_currentJsonExtractPath);
+            string header = hasCustomPath ? $"Key ({_currentJsonExtractPath})" : "Key";
+
+            ColMsgKey.Header = header;
+            ColLiveKey.Header = header;
+
+            if (!refreshExisting) return;
+
+            foreach (var m in _fetchedMessages)
+            {
+                UpdateRecordDisplayKey(m);
+            }
+            DgMessages.Items.Refresh();
+            RenderMessageDetail(DgMessages.SelectedItem as KafkaMessageRecord);
+
+            foreach (var m in _liveMessages)
+            {
+                UpdateRecordDisplayKey(m);
+            }
+            DgLiveMessages.Items.Refresh();
+            RenderLiveMessageDetail(DgLiveMessages.SelectedItem as KafkaMessageRecord);
+        }
+
+        private void UpdateRecordDisplayKey(KafkaMessageRecord record)
+        {
+            if (record == null) return;
+            if (string.IsNullOrEmpty(_currentJsonExtractPath))
+            {
+                record.DisplayKey = record.KeyText;
+                return;
+            }
+
+            string extracted = KafkaExplorerService.ExtractFieldAuto(record.ValueText, _currentJsonExtractPath);
+            record.DisplayKey = !string.IsNullOrEmpty(extracted) ? extracted : record.KeyText;
         }
 
         private void TxtTopicFilter_TextChanged(object sender, TextChangedEventArgs e)
@@ -851,16 +933,142 @@ namespace KafkaLauncher
         }
 
         // ======================================
+        // 서브탭 0: 클러스터 상태 대시보드 (Kafka UI 스타일)
+        // ======================================
+        private async void BtnRefreshDashboard_Click(object sender, RoutedEventArgs e)
+        {
+            await RefreshDashboardAsync(showErrorDialog: true);
+        }
+
+        private void ChkDashboardAutoRefresh_Changed(object sender, RoutedEventArgs e)
+        {
+            if (_dashboardTimer == null) return;
+            if (ChkDashboardAutoRefresh.IsChecked == true)
+                _dashboardTimer.Start();
+            else
+                _dashboardTimer.Stop();
+        }
+
+        private async void ExplorerTabs_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (_isInitializing || !ReferenceEquals(e.Source, ExplorerTabs)) return;
+            if (ExplorerTabs.SelectedIndex == 0 && _allTopics.Count > 0 && !_isRefreshingDashboard)
+            {
+                await RefreshDashboardAsync(showErrorDialog: false);
+            }
+        }
+
+        private async Task RefreshDashboardAsync(bool showErrorDialog)
+        {
+            if (_isRefreshingDashboard) return;
+            _isRefreshingDashboard = true;
+            BtnRefreshDashboard.IsEnabled = false;
+            try
+            {
+                bool includeInternal = ChkHideInternalTopics?.IsChecked != true;
+                bool forceCounts = ChkDashboardCountMessages?.IsChecked == true;
+                var snap = await _explorer.GetClusterDashboardAsync(TxtBootstrapServer.Text.Trim(), includeInternal, forceCounts);
+
+                TxtKpiBrokers.Text = snap.OnlineBrokers.ToString("N0");
+                TxtKpiBrokersSub.Text = snap.OnlineBrokers > 0 ? "Online" : "Offline";
+
+                TxtKpiTopics.Text = snap.UserTopicCount.ToString("N0");
+                TxtKpiTopicsSub.Text = $"전체 {snap.TotalTopicCount:N0} (내부 포함)";
+
+                TxtKpiPartitions.Text = snap.TotalPartitions.ToString("N0");
+                TxtKpiPartitionsSub.Text = $"URP: {snap.UnderReplicatedPartitions} · Offline: {snap.OfflinePartitions}";
+                TxtKpiPartitionsSub.Foreground = (snap.UnderReplicatedPartitions > 0 || snap.OfflinePartitions > 0)
+                    ? new SolidColorBrush(Color.FromRgb(0xF5, 0xA6, 0x23))
+                    : IdleTextBrush;
+
+                if (snap.MessageCountsLoaded)
+                {
+                    TxtKpiMessages.Text = snap.TotalMessages.ToString("N0");
+                    TxtKpiMessagesSub.Text = "조회 토픽 합계";
+                }
+                else
+                {
+                    TxtKpiMessages.Text = "-";
+                    TxtKpiMessagesSub.Text = $"대규모({snap.TargetPartitionCount}P) · 체크 시 집계";
+                }
+
+                TxtKpiGroups.Text = snap.ConsumerGroupCount.ToString("N0");
+                TxtKpiGroupsSub.Text = $"Stable: {snap.StableGroupCount:N0}";
+
+                DgDashBrokers.ItemsSource = snap.Brokers;
+                DgDashTopics.ItemsSource = snap.Topics;
+
+                if (snap.IsHealthy)
+                {
+                    DotDashHealth.Fill = RunningDotBrush;
+                    TxtDashHealth.Text = "Healthy";
+                    TxtDashHealth.Foreground = RunningDotBrush;
+                }
+                else
+                {
+                    DotDashHealth.Fill = new SolidColorBrush(Color.FromRgb(0xF5, 0xA6, 0x23));
+                    TxtDashHealth.Text = $"Warning (URP:{snap.UnderReplicatedPartitions} / Off:{snap.OfflinePartitions})";
+                    TxtDashHealth.Foreground = new SolidColorBrush(Color.FromRgb(0xF5, 0xA6, 0x23));
+                }
+
+                TxtDashUpdated.Text = $"마지막 갱신: {snap.CapturedAt} ({snap.ElapsedMs}ms)";
+            }
+            catch (Exception ex)
+            {
+                DotDashHealth.Fill = ErrorDotBrush;
+                TxtDashHealth.Text = "연결 오류";
+                TxtDashHealth.Foreground = ErrorDotBrush;
+                TxtDashUpdated.Text = ex.Message;
+                if (showErrorDialog)
+                {
+                    MessageBox.Show(ex.Message, "클러스터 상태 조회 실패", MessageBoxButton.OK, MessageBoxImage.Error);
+                }
+            }
+            finally
+            {
+                _isRefreshingDashboard = false;
+                BtnRefreshDashboard.IsEnabled = true;
+            }
+        }
+
+        private async void DgDashTopics_MouseDoubleClick(object sender, MouseButtonEventArgs e)
+        {
+            if (DgDashTopics.SelectedItem is KafkaTopicHealthRow row)
+            {
+                var match = _allTopics.FirstOrDefault(t => string.Equals(t.Name, row.TopicName, StringComparison.Ordinal));
+                if (match != null)
+                {
+                    LstTopics.SelectedItem = match;
+                }
+                ExplorerTabs.SelectedIndex = 1; // 메시지 탐색 탭
+                await FetchMessagesAsync();
+            }
+        }
+
+        // ======================================
         // 서브탭 1: 메시지 탐색 (Offset Explorer)
         // ======================================
         private void CboFetchMode_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
             if (PnlSpecificOffset == null) return;
-            PnlSpecificOffset.Visibility = CboFetchMode.SelectedIndex == 2 ? Visibility.Visible : Visibility.Collapsed;
+            bool needsOffset = CboFetchMode.SelectedIndex == 2 || CboFetchMode.SelectedIndex == 3;
+            bool isSingle = CboFetchMode.SelectedIndex == 3;
+            PnlSpecificOffset.Visibility = needsOffset ? Visibility.Visible : Visibility.Collapsed;
+            if (PnlMaxMessages != null)
+                PnlMaxMessages.Visibility = isSingle ? Visibility.Collapsed : Visibility.Visible;
+        }
+
+        private async void TxtSpecificOffset_KeyDown(object sender, KeyEventArgs e)
+        {
+            if (e.Key == Key.Enter)
+            {
+                await FetchMessagesAsync();
+            }
         }
 
         private int GetSelectedMaxMessages()
         {
+            if (GetSelectedFetchMode() == MessageFetchMode.SingleOffset) return 1;
             string text = (CboMaxMessages.SelectedItem as ComboBoxItem)?.Content?.ToString() ?? "50";
             return int.TryParse(text, out int n) ? n : 50;
         }
@@ -877,6 +1085,7 @@ namespace KafkaLauncher
             {
                 case 1: return MessageFetchMode.Earliest;
                 case 2: return MessageFetchMode.SpecificOffset;
+                case 3: return MessageFetchMode.SingleOffset;
                 default: return MessageFetchMode.Latest;
             }
         }
@@ -884,7 +1093,8 @@ namespace KafkaLauncher
         private async void BtnOffsetPrev_Click(object sender, RoutedEventArgs e)
         {
             if (!long.TryParse(TxtSpecificOffset.Text.Trim(), out long current)) current = 0;
-            long next = Math.Max(0, current - GetSelectedMaxMessages());
+            int step = GetSelectedFetchMode() == MessageFetchMode.SingleOffset ? 1 : GetSelectedMaxMessages();
+            long next = Math.Max(0, current - step);
             TxtSpecificOffset.Text = next.ToString();
             await FetchMessagesAsync();
         }
@@ -892,7 +1102,8 @@ namespace KafkaLauncher
         private async void BtnOffsetNext_Click(object sender, RoutedEventArgs e)
         {
             if (!long.TryParse(TxtSpecificOffset.Text.Trim(), out long current)) current = 0;
-            long next = current + GetSelectedMaxMessages();
+            int step = GetSelectedFetchMode() == MessageFetchMode.SingleOffset ? 1 : GetSelectedMaxMessages();
+            long next = current + step;
             TxtSpecificOffset.Text = next.ToString();
             await FetchMessagesAsync();
         }
@@ -913,11 +1124,11 @@ namespace KafkaLauncher
 
             MessageFetchMode mode = GetSelectedFetchMode();
             long specificOffset = 0;
-            if (mode == MessageFetchMode.SpecificOffset)
+            if (mode == MessageFetchMode.SpecificOffset || mode == MessageFetchMode.SingleOffset)
             {
                 if (!long.TryParse(TxtSpecificOffset.Text.Trim(), out specificOffset) || specificOffset < 0)
                 {
-                    MessageBox.Show("시작 오프셋은 0 이상의 정수로 입력하세요.", "입력 오류", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    MessageBox.Show("오프셋 번호는 0 이상의 정수로 입력하세요.", "입력 오류", MessageBoxButton.OK, MessageBoxImage.Warning);
                     return;
                 }
             }
@@ -938,6 +1149,10 @@ namespace KafkaLauncher
                     maxMessages);
 
                 _fetchedMessages = res.Messages;
+                foreach (var m in _fetchedMessages)
+                {
+                    UpdateRecordDisplayKey(m);
+                }
                 ApplyMessageKeywordFilter();
 
                 TxtExplorerSummary.Text = $"[{topic.Name}] {res.Summary}";
@@ -978,6 +1193,7 @@ namespace KafkaLauncher
             {
                 DgMessages.ItemsSource = _fetchedMessages
                     .Where(m =>
+                        (m.DisplayKey != null && m.DisplayKey.IndexOf(kw, StringComparison.OrdinalIgnoreCase) >= 0) ||
                         (m.KeyText != null && m.KeyText.IndexOf(kw, StringComparison.OrdinalIgnoreCase) >= 0) ||
                         (m.ValueText != null && m.ValueText.IndexOf(kw, StringComparison.OrdinalIgnoreCase) >= 0))
                     .ToList();
@@ -1008,7 +1224,9 @@ namespace KafkaLauncher
             }
 
             TxtSelectedMsgMeta.Text = $"Partition {msg.Partition}  |  Offset {msg.Offset}  |  {msg.TimestampText} ({msg.TimestampType})  |  {msg.SizeBytes} B  |  Headers: {msg.HeaderCount}";
-            TxtDetailKey.Text = msg.KeyText;
+            TxtDetailKey.Text = !string.IsNullOrEmpty(_currentJsonExtractPath) && !string.Equals(msg.DisplayKey, msg.KeyText, StringComparison.Ordinal)
+                ? $"{msg.DisplayKey}   [Record Key: {msg.KeyText}]"
+                : msg.KeyText;
             TxtDetailValue.Text = FormatMessageForView(
                 msg,
                 RbViewJson.IsChecked == true,
@@ -1122,6 +1340,7 @@ namespace KafkaLauncher
 
             foreach (var record in batch)
             {
+                UpdateRecordDisplayKey(record);
                 _liveMessageTotalCount++;
                 _liveMessages.Add(record);
             }
@@ -1189,7 +1408,7 @@ namespace KafkaLauncher
                 return;
             }
 
-            TxtLiveSelectedMeta.Text = $"Partition {msg.Partition}  |  Offset {msg.Offset}  |  Key: {msg.KeyText}  |  {msg.TimestampText}";
+            TxtLiveSelectedMeta.Text = $"Partition {msg.Partition}  |  Offset {msg.Offset}  |  Key: {msg.DisplayKey}  |  {msg.TimestampText}";
             TxtLiveDetailValue.Text = FormatMessageForView(
                 msg,
                 RbLiveJson.IsChecked == true,
@@ -1246,7 +1465,7 @@ namespace KafkaLauncher
                     CboPartition.SelectedIndex = targetIndex;
                 }
                 CboFetchMode.SelectedIndex = 0; // 최신 N건
-                ExplorerTabs.SelectedIndex = 0; // 메시지 탐색 탭으로 이동
+                ExplorerTabs.SelectedIndex = 1; // 메시지 탐색 탭으로 이동
                 await FetchMessagesAsync();
             }
         }
@@ -1392,6 +1611,7 @@ namespace KafkaLauncher
 
                 _isClosing = true;
                 _uiFlushTimer.Stop();
+                _dashboardTimer.Stop();
                 _liveConsumer.StopSync();
 
                 if (answer == MessageBoxResult.Yes)
@@ -1403,6 +1623,7 @@ namespace KafkaLauncher
             {
                 _isClosing = true;
                 _uiFlushTimer.Stop();
+                _dashboardTimer.Stop();
                 _liveConsumer.StopSync();
             }
         }

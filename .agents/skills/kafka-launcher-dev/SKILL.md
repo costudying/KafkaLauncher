@@ -13,10 +13,10 @@ description: >-
 |---|---|
 | `KafkaLauncher/App.xaml.cs` | Calls `NativeKafkaLoader.EnsureLoaded()` during `OnStartup`. |
 | `KafkaLauncher/NativeKafkaLoader.cs` | Extracts architecture-matched `librdkafka` native DLLs from embedded `KafkaLauncher.librdkafka_native.zip` into `%LocalAppData%\KafkaLauncher\native\` and calls `SetDllDirectory` + `Confluent.Kafka.Library.Load`. |
-| `KafkaLauncher/LauncherSettings.cs` | Loads/saves XML settings in `%LocalAppData%\KafkaLauncher\settings.xml` (`KafkaRoot`, `CustomJavaHome`, `RunMode`, config paths, Heap, Bootstrap Server). |
-| `KafkaLauncher/KafkaProcessManager.cs` | Manages Zookeeper/Kafka `.bat` processes, `taskkill /T /F` process tree shutdown, KRaft storage format (`kafka-storage.bat`), and Java environment detection (`DetectJavaAsync`). |
-| `KafkaLauncher/KafkaExplorerService.cs` | Native `Confluent.Kafka` Admin/Consumer/Producer operations, `KafkaLiveConsumer`, JSON Pretty-Print, and Hex Dump helpers. |
-| `KafkaLauncher/MainWindow.xaml` & `.cs` | Dark-theme WPF UI with two main tabs (`런처 & 로그` and `Offset Explorer`). |
+| `KafkaLauncher/LauncherSettings.cs` | Loads/saves XML settings in `%LocalAppData%\KafkaLauncher\settings.xml` (`KafkaRoot`, `CustomJavaHome`, `RunMode`, config paths, Heap, Bootstrap Server, `JsonExtractPath`). |
+| `KafkaLauncher/KafkaProcessManager.cs` | Manages Zookeeper/Kafka `.bat` processes, `taskkill /T /F` process tree shutdown, KRaft 3.x/4.x storage format (`--standalone` auto-detect), safe `CleanDataDirectoriesAsync`, and Java environment detection (`DetectJavaAsync`). |
+| `KafkaLauncher/KafkaExplorerService.cs` | Native `Confluent.Kafka` Cluster Dashboard (`GetClusterDashboardAsync`), Admin/Consumer/Producer, exact `SingleOffset` lookup, `KafkaLiveConsumer`, JSON/XML `ExtractFieldAuto`, JSON/XML `FormatPretty`, and Hex Dump helpers. |
+| `KafkaLauncher/MainWindow.xaml` & `.cs` | Dark-theme WPF UI with two main tabs (`런처 & 로그` and `Offset Explorer` with 5 sub-tabs including `클러스터 상태`) and 100ms batched UI flush timer. |
 
 ## Modification Checklist
 

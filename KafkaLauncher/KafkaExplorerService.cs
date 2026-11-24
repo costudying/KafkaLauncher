@@ -5,6 +5,8 @@ using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Xml;
+using System.Xml.Linq;
 using Confluent.Kafka;
 using Confluent.Kafka.Admin;
 using Newtonsoft.Json;
@@ -16,7 +18,8 @@ namespace KafkaLauncher
     {
         Latest,
         Earliest,
-        SpecificOffset
+        SpecificOffset,
+        SingleOffset
     }
 
     public class ClusterMetadataSummary
@@ -63,6 +66,7 @@ namespace KafkaLauncher
         public byte[] KeyBytes { get; set; }
         public byte[] ValueBytes { get; set; }
         public string KeyText { get; set; }
+        public string DisplayKey { get; set; }
         public string ValueText { get; set; }
         public string ValuePreview { get; set; }
         public int SizeBytes { get; set; }
@@ -92,6 +96,50 @@ namespace KafkaLauncher
         public long LogEndOffset { get; set; }
         public long Lag => Math.Max(0, LogEndOffset - CurrentOffset);
         public bool HasLag => Lag > 0;
+    }
+
+    public class KafkaBrokerStatusRow
+    {
+        public int BrokerId { get; set; }
+        public string Host { get; set; }
+        public int Port { get; set; }
+        public int LeaderPartitions { get; set; }
+        public int TotalReplicas { get; set; }
+        public string Status { get; set; } = "Online";
+    }
+
+    public class KafkaTopicHealthRow
+    {
+        public string TopicName { get; set; }
+        public int PartitionCount { get; set; }
+        public int ReplicationFactor { get; set; }
+        public long TotalMessages { get; set; }
+        public bool MessageCountLoaded { get; set; }
+        public string MessageCountDisplay => MessageCountLoaded ? TotalMessages.ToString("N0") : "-";
+        public int UnderReplicatedPartitions { get; set; }
+        public int OfflinePartitions { get; set; }
+        public bool IsInternal => !string.IsNullOrEmpty(TopicName) && TopicName.StartsWith("__", StringComparison.Ordinal);
+        public bool HasIssue => UnderReplicatedPartitions > 0 || OfflinePartitions > 0;
+    }
+
+    public class ClusterDashboardSnapshot
+    {
+        public int OnlineBrokers { get; set; }
+        public int UserTopicCount { get; set; }
+        public int TotalTopicCount { get; set; }
+        public int TotalPartitions { get; set; }
+        public int UnderReplicatedPartitions { get; set; }
+        public int OfflinePartitions { get; set; }
+        public long TotalMessages { get; set; }
+        public bool MessageCountsLoaded { get; set; }
+        public int TargetPartitionCount { get; set; }
+        public int ConsumerGroupCount { get; set; }
+        public int StableGroupCount { get; set; }
+        public long ElapsedMs { get; set; }
+        public string CapturedAt { get; set; }
+        public bool IsHealthy => OnlineBrokers > 0 && UnderReplicatedPartitions == 0 && OfflinePartitions == 0;
+        public List<KafkaBrokerStatusRow> Brokers { get; set; } = new List<KafkaBrokerStatusRow>();
+        public List<KafkaTopicHealthRow> Topics { get; set; } = new List<KafkaTopicHealthRow>();
     }
 
     public class KafkaLiveConsumer
@@ -336,6 +384,176 @@ namespace KafkaLauncher
             });
         }
 
+        public async Task<ClusterDashboardSnapshot> GetClusterDashboardAsync(
+            string bootstrapServer,
+            bool includeInternalTopics,
+            bool forceMessageCounts = false)
+        {
+            ValidateBootstrapServer(bootstrapServer);
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            string cleanBootstrap = bootstrapServer.Trim();
+
+            var snapshot = await Task.Run(() =>
+            {
+                var snap = new ClusterDashboardSnapshot();
+
+                using (var admin = new AdminClientBuilder(CreateAdminConfig(cleanBootstrap)).Build())
+                {
+                    var meta = admin.GetMetadata(TimeSpan.FromSeconds(5));
+                    var leaderCounts = new Dictionary<int, int>();
+                    var replicaCounts = new Dictionary<int, int>();
+
+                    var validTopics = meta.Topics
+                        .Where(t => !t.Error.IsError)
+                        .OrderBy(t => t.Topic, StringComparer.OrdinalIgnoreCase)
+                        .ToList();
+
+                    snap.TotalTopicCount = validTopics.Count;
+                    snap.UserTopicCount = validTopics.Count(t => !t.Topic.StartsWith("__", StringComparison.Ordinal));
+
+                    var displayedTopics = validTopics
+                        .Where(t => includeInternalTopics || !t.Topic.StartsWith("__", StringComparison.Ordinal))
+                        .ToList();
+
+                    int targetPartitions = displayedTopics.Sum(t => t.Partitions.Count);
+                    snap.TargetPartitionCount = targetPartitions;
+                    // 소규모 클러스터(40파티션 이하)는 자동 집계, 대규모 원격 클러스터는 체크 시에만 집계해 VPN 지연을 방지
+                    bool shouldCountMessages = forceMessageCounts || targetPartitions <= 40;
+                    snap.MessageCountsLoaded = shouldCountMessages;
+
+                    foreach (var t in validTopics)
+                    {
+                        bool isInternal = t.Topic.StartsWith("__", StringComparison.Ordinal);
+                        int urp = 0;
+                        int offline = 0;
+
+                        foreach (var p in t.Partitions)
+                        {
+                            snap.TotalPartitions++;
+                            if (p.Leader >= 0)
+                            {
+                                leaderCounts[p.Leader] = leaderCounts.TryGetValue(p.Leader, out int lc) ? lc + 1 : 1;
+                            }
+                            else
+                            {
+                                offline++;
+                                snap.OfflinePartitions++;
+                            }
+
+                            if (p.Replicas != null)
+                            {
+                                foreach (int r in p.Replicas)
+                                {
+                                    replicaCounts[r] = replicaCounts.TryGetValue(r, out int rc) ? rc + 1 : 1;
+                                }
+                                if (p.InSyncReplicas != null && p.InSyncReplicas.Length < p.Replicas.Length)
+                                {
+                                    urp++;
+                                    snap.UnderReplicatedPartitions++;
+                                }
+                            }
+                        }
+
+                        if (!isInternal || includeInternalTopics)
+                        {
+                            snap.Topics.Add(new KafkaTopicHealthRow
+                            {
+                                TopicName = t.Topic,
+                                PartitionCount = t.Partitions.Count,
+                                ReplicationFactor = t.Partitions.Count > 0 && t.Partitions[0].Replicas != null ? t.Partitions[0].Replicas.Length : 0,
+                                TotalMessages = 0,
+                                MessageCountLoaded = shouldCountMessages,
+                                UnderReplicatedPartitions = urp,
+                                OfflinePartitions = offline
+                            });
+                        }
+                    }
+
+                    if (shouldCountMessages && displayedTopics.Count > 0)
+                    {
+                        var rowByName = snap.Topics.ToDictionary(r => r.TopicName, StringComparer.Ordinal);
+                        var allPartItems = displayedTopics
+                            .SelectMany(t => t.Partitions.Select(p => new TopicPartition(t.Topic, new Partition(p.PartitionId))))
+                            .ToList();
+
+                        // 파티션이 많을 때 최대 4개 병렬 워커로 빠르게 Watermark 조회
+                        int workerCount = Math.Min(4, Math.Max(1, allPartItems.Count / 15 + 1));
+                        var msgTotals = new System.Collections.Concurrent.ConcurrentDictionary<string, long>(StringComparer.Ordinal);
+
+                        var chunks = allPartItems
+                            .Select((tp, idx) => new { tp, bucket = idx % workerCount })
+                            .GroupBy(x => x.bucket)
+                            .Select(g => g.Select(x => x.tp).ToList())
+                            .ToList();
+
+                        Parallel.ForEach(chunks, chunk =>
+                        {
+                            using (var consumer = new ConsumerBuilder<byte[], byte[]>(new ConsumerConfig
+                            {
+                                BootstrapServers = cleanBootstrap,
+                                GroupId = "kafka-launcher-dash-" + Guid.NewGuid().ToString("N"),
+                                EnableAutoCommit = false
+                            }).Build())
+                            {
+                                foreach (var tp in chunk)
+                                {
+                                    try
+                                    {
+                                        var wm = consumer.QueryWatermarkOffsets(tp, TimeSpan.FromSeconds(2));
+                                        long cnt = Math.Max(0, wm.High.Value - wm.Low.Value);
+                                        msgTotals.AddOrUpdate(tp.Topic, cnt, (_, prev) => prev + cnt);
+                                    }
+                                    catch { }
+                                }
+                            }
+                        });
+
+                        long grandTotal = 0;
+                        foreach (var kv in msgTotals)
+                        {
+                            if (rowByName.TryGetValue(kv.Key, out var row))
+                            {
+                                row.TotalMessages = kv.Value;
+                            }
+                            grandTotal += kv.Value;
+                        }
+                        snap.TotalMessages = grandTotal;
+                    }
+
+                    foreach (var b in meta.Brokers.OrderBy(x => x.BrokerId))
+                    {
+                        snap.Brokers.Add(new KafkaBrokerStatusRow
+                        {
+                            BrokerId = b.BrokerId,
+                            Host = b.Host,
+                            Port = b.Port,
+                            LeaderPartitions = leaderCounts.TryGetValue(b.BrokerId, out int lc) ? lc : 0,
+                            TotalReplicas = replicaCounts.TryGetValue(b.BrokerId, out int rc) ? rc : 0,
+                            Status = "Online"
+                        });
+                    }
+                    snap.OnlineBrokers = snap.Brokers.Count;
+                }
+
+                return snap;
+            });
+
+            // Consumer Groups 통계 조회 (일부 브로커/권한에서 실패해도 대시보드 전체는 정상 표시)
+            try
+            {
+                var groups = await ListConsumerGroupsAsync(cleanBootstrap);
+                snapshot.ConsumerGroupCount = groups.Count;
+                snapshot.StableGroupCount = groups.Count(g =>
+                    string.Equals(g.State, "Stable", StringComparison.OrdinalIgnoreCase));
+            }
+            catch { }
+
+            sw.Stop();
+            snapshot.ElapsedMs = sw.ElapsedMilliseconds;
+            snapshot.CapturedAt = DateTime.Now.ToString("HH:mm:ss");
+            return snapshot;
+        }
+
         public async Task CreateTopicAsync(string bootstrapServer, string topicName, int partitions, int replicationFactor)
         {
             ValidateBootstrapServer(bootstrapServer);
@@ -427,8 +645,8 @@ namespace KafkaLauncher
 
             if (maxMessages < 1 || maxMessages > 2000)
                 throw new ArgumentException("조회 개수는 1 ~ 2000 사이로 입력하세요.");
-            if (mode == MessageFetchMode.SpecificOffset && specificOffset < 0)
-                throw new ArgumentException("시작 오프셋은 0 이상이어야 합니다.");
+            if ((mode == MessageFetchMode.SpecificOffset || mode == MessageFetchMode.SingleOffset) && specificOffset < 0)
+                throw new ArgumentException("오프셋은 0 이상이어야 합니다.");
 
             return Task.Run(() =>
             {
@@ -469,6 +687,7 @@ namespace KafkaLauncher
                     var assignments = new List<TopicPartitionOffset>();
                     var endOffsets = new Dictionary<int, long>();
                     var remainingPerPartition = new Dictionary<int, int>();
+                    var rangeHints = new List<string>();
 
                     foreach (int pid in partitionIds)
                     {
@@ -476,9 +695,15 @@ namespace KafkaLauncher
                         var wm = consumer.QueryWatermarkOffsets(tp, TimeSpan.FromSeconds(5));
                         long low = wm.Low.Value;
                         long high = wm.High.Value;
-                        if (high <= low) continue; // 비어있는 파티션
+                        if (high <= low)
+                        {
+                            rangeHints.Add($"P{pid}: 비어있음");
+                            continue; // 비어있는 파티션
+                        }
+                        rangeHints.Add($"P{pid}: {low}~{high - 1}");
 
                         long startOff;
+                        int limitForPartition = maxMessages;
                         switch (mode)
                         {
                             case MessageFetchMode.Latest:
@@ -491,6 +716,11 @@ namespace KafkaLauncher
                                 if (specificOffset >= high) continue;
                                 startOff = Math.Max(low, specificOffset);
                                 break;
+                            case MessageFetchMode.SingleOffset:
+                                if (specificOffset < low || specificOffset >= high) continue;
+                                startOff = specificOffset;
+                                limitForPartition = 1;
+                                break;
                             default:
                                 startOff = low;
                                 break;
@@ -500,18 +730,21 @@ namespace KafkaLauncher
                         if (available <= 0) continue;
 
                         assignments.Add(new TopicPartitionOffset(tp, new Offset(startOff)));
-                        endOffsets[pid] = high - 1;
-                        remainingPerPartition[pid] = (int)Math.Min(available, maxMessages);
+                        endOffsets[pid] = mode == MessageFetchMode.SingleOffset ? specificOffset : (high - 1);
+                        remainingPerPartition[pid] = (int)Math.Min(available, limitForPartition);
                     }
 
                     if (assignments.Count == 0)
                     {
                         sw.Stop();
+                        string msg = mode == MessageFetchMode.SingleOffset
+                            ? $"오프셋 {specificOffset}을(를) 찾을 수 없습니다. (유효 범위: {string.Join(", ", rangeHints)}) ({sw.ElapsedMilliseconds}ms)"
+                            : $"조회된 메시지가 없습니다. ({sw.ElapsedMilliseconds}ms)";
                         return new MessageFetchResult
                         {
                             Messages = records,
                             ElapsedMs = sw.ElapsedMilliseconds,
-                            Summary = $"조회된 메시지가 없습니다. ({sw.ElapsedMilliseconds}ms)"
+                            Summary = msg
                         };
                     }
 
@@ -519,7 +752,7 @@ namespace KafkaLauncher
                     var activePartitions = new HashSet<int>(assignments.Select(a => a.Partition.Value));
                     int totalCap = mode == MessageFetchMode.Latest
                         ? maxMessages * Math.Min(assignments.Count, 8)
-                        : maxMessages;
+                        : (mode == MessageFetchMode.SingleOffset ? assignments.Count : maxMessages);
 
                     int consecutiveEmptyPolls = 0;
                     while (activePartitions.Count > 0 && records.Count < totalCap && !ct.IsCancellationRequested)
@@ -543,6 +776,13 @@ namespace KafkaLauncher
 
                         if (cr.Message != null && activePartitions.Contains(pid))
                         {
+                            if (mode == MessageFetchMode.SingleOffset && cr.Offset.Value != specificOffset)
+                            {
+                                if (cr.Offset.Value > specificOffset)
+                                    activePartitions.Remove(pid);
+                                continue;
+                            }
+
                             records.Add(ToMessageRecord(cr));
 
                             if (remainingPerPartition.ContainsKey(pid))
@@ -568,6 +808,12 @@ namespace KafkaLauncher
                         .Take(maxMessages)
                         .ToList();
                 }
+                else if (mode == MessageFetchMode.SingleOffset)
+                {
+                    records = records
+                        .OrderBy(r => r.Partition)
+                        .ToList();
+                }
                 else
                 {
                     records = records
@@ -579,11 +825,14 @@ namespace KafkaLauncher
 
                 sw.Stop();
                 string partLabel = partitionFilter.HasValue ? $"P{partitionFilter.Value}" : "전체 파티션";
+                string summary = mode == MessageFetchMode.SingleOffset
+                    ? $"{partLabel} · 오프셋 {specificOffset} 단건 조회 ({records.Count}건, {sw.ElapsedMilliseconds}ms)"
+                    : $"{partLabel} · {records.Count}건 조회 완료 ({sw.ElapsedMilliseconds}ms)";
                 return new MessageFetchResult
                 {
                     Messages = records,
                     ElapsedMs = sw.ElapsedMilliseconds,
-                    Summary = $"{partLabel} · {records.Count}건 조회 완료 ({sw.ElapsedMilliseconds}ms)"
+                    Summary = summary
                 };
             }, ct);
         }
@@ -757,6 +1006,7 @@ namespace KafkaLauncher
                 KeyBytes = keyBytes,
                 ValueBytes = valBytes,
                 KeyText = keyText,
+                DisplayKey = keyText,
                 ValueText = valText,
                 ValuePreview = preview,
                 SizeBytes = (keyBytes?.Length ?? 0) + (valBytes?.Length ?? 0),
@@ -764,27 +1014,130 @@ namespace KafkaLauncher
             };
         }
 
-        public static string FormatJsonPretty(string text)
+        /// <summary>
+        /// JSON(head.key, $.head.key) 및 XML(//head/key, head.key, @attr) 모두에서 값을 자동 추출합니다.
+        /// </summary>
+        public static string ExtractFieldAuto(string text, string path)
         {
-            if (string.IsNullOrWhiteSpace(text) || text == "<null>")
-                return text ?? string.Empty;
+            if (string.IsNullOrWhiteSpace(path) || string.IsNullOrWhiteSpace(text) || text == "<null>")
+                return string.Empty;
 
             string trimmed = text.Trim();
+            string cleanPath = path.Trim();
+
+            // 1) JSON 페이로드
             if ((trimmed.StartsWith("{") && trimmed.EndsWith("}")) ||
                 (trimmed.StartsWith("[") && trimmed.EndsWith("]")))
             {
                 try
                 {
-                    return JToken.Parse(trimmed).ToString(Formatting.Indented);
+                    // XPath 형태(//head/key 또는 /head/key)를 입력한 경우에도 JSON 점 표기법으로 자동 변환 지원
+                    string jsonPath = cleanPath;
+                    if (jsonPath.StartsWith("/"))
+                    {
+                        jsonPath = jsonPath.TrimStart('/').Replace('/', '.');
+                    }
+
+                    var root = JToken.Parse(trimmed);
+                    var token = root.SelectToken(jsonPath);
+                    if (token == null && !jsonPath.StartsWith("$"))
+                    {
+                        // 최상위 래퍼 없이 하위 키 검색 폴백 (예: ..key)
+                        token = root.SelectToken("$.." + jsonPath);
+                    }
+                    if (token == null || token.Type == JTokenType.Null)
+                        return string.Empty;
+
+                    return token is JValue
+                        ? token.ToString()
+                        : token.ToString(Newtonsoft.Json.Formatting.None);
                 }
                 catch
                 {
-                    // 유효한 JSON이 아니면 원문 그대로 반환
+                    return string.Empty;
                 }
+            }
+
+            // 2) XML 페이로드
+            if (trimmed.StartsWith("<") && trimmed.EndsWith(">"))
+            {
+                try
+                {
+                    var doc = new XmlDocument { XmlResolver = null };
+                    doc.LoadXml(trimmed);
+
+                    XmlNode node = null;
+                    if (cleanPath.StartsWith("/") || cleanPath.Contains("[") || cleanPath.Contains("@"))
+                    {
+                        // 표준 XPath 직접 시도
+                        node = doc.SelectSingleNode(cleanPath);
+                    }
+
+                    if (node == null)
+                    {
+                        // 점 표기법(head.key) 또는 단순 태그명(key, //head/key) → 네임스페이스 무시 XPath로 자동 변환
+                        string[] segments = cleanPath
+                            .TrimStart('/')
+                            .Split(new[] { '.', '/' }, StringSplitOptions.RemoveEmptyEntries);
+
+                        if (segments.Length > 0)
+                        {
+                            var xpathParts = segments.Select(seg =>
+                                seg.StartsWith("@")
+                                    ? seg
+                                    : $"*[local-name()='{seg.Replace("'", "")}']");
+
+                            string nsAgnosticXPath = "//" + string.Join("/", xpathParts);
+                            node = doc.SelectSingleNode(nsAgnosticXPath);
+                        }
+                    }
+
+                    return node != null ? (node.InnerText ?? string.Empty).Trim() : string.Empty;
+                }
+                catch
+                {
+                    return string.Empty;
+                }
+            }
+
+            return string.Empty;
+        }
+
+        public static string FormatPretty(string text)
+        {
+            if (string.IsNullOrWhiteSpace(text) || text == "<null>")
+                return text ?? string.Empty;
+
+            string trimmed = text.Trim();
+
+            // JSON Pretty-Print
+            if ((trimmed.StartsWith("{") && trimmed.EndsWith("}")) ||
+                (trimmed.StartsWith("[") && trimmed.EndsWith("]")))
+            {
+                try
+                {
+                    return JToken.Parse(trimmed).ToString(Newtonsoft.Json.Formatting.Indented);
+                }
+                catch { }
+            }
+
+            // XML Pretty-Print
+            if (trimmed.StartsWith("<") && trimmed.EndsWith(">"))
+            {
+                try
+                {
+                    var xdoc = XDocument.Parse(trimmed);
+                    return xdoc.Declaration != null
+                        ? xdoc.Declaration.ToString() + Environment.NewLine + xdoc.ToString()
+                        : xdoc.ToString();
+                }
+                catch { }
             }
 
             return text;
         }
+
+        public static string FormatJsonPretty(string text) => FormatPretty(text);
 
         public static string FormatHexDump(byte[] bytes, int maxBytes = 4096)
         {
