@@ -515,12 +515,12 @@
                                 <ColumnDefinition Width="Auto"/>
                             </Grid.ColumnDefinitions>
 
-                            <DockPanel Grid.Row="0" Grid.ColumnSpan="3" Margin="0,0,0,8">
+                            <DockPanel Grid.Row="0" Grid.ColumnSpan="3" LastChildFill="False" Margin="0,0,0,8">
                                 <TextBlock Style="{StaticResource H2}" Text="Kafka Root 경로" DockPanel.Dock="Left" VerticalAlignment="Center"/>
-                                <StackPanel Orientation="Horizontal" DockPanel.Dock="Right">
+                                <StackPanel Orientation="Horizontal" DockPanel.Dock="Right" VerticalAlignment="Center">
                                     <TextBlock Style="{StaticResource H2}" Text="실행 모드: " VerticalAlignment="Center" Margin="0,0,8,0"/>
-                                    <RadioButton x:Name="RbModeZk" Content="Zookeeper 모드" GroupName="RunMode" Margin="0,0,14,0" Checked="RunMode_Changed"/>
-                                    <RadioButton x:Name="RbModeKRaft" Content="KRaft 모드 (Kafka 3.3+)" GroupName="RunMode" Checked="RunMode_Changed"/>
+                                    <RadioButton x:Name="RbModeZk" Content="Zookeeper 모드" GroupName="RunMode" Style="{StaticResource PillRadio}" Margin="0,0,6,0" Checked="RunMode_Changed"/>
+                                    <RadioButton x:Name="RbModeKRaft" Content="KRaft 모드 (Kafka 3.3+)" GroupName="RunMode" Style="{StaticResource PillRadio}" Margin="0" Checked="RunMode_Changed"/>
                                 </StackPanel>
                             </DockPanel>
 
@@ -566,7 +566,7 @@
                                 <ColumnDefinition Width="Auto"/>
                             </Grid.ColumnDefinitions>
 
-                            <DockPanel Grid.Row="0" Grid.ColumnSpan="6" Margin="0,0,0,8">
+                            <DockPanel Grid.Row="0" Grid.ColumnSpan="6" LastChildFill="False" Margin="0,0,0,8">
                                 <TextBlock Style="{StaticResource H2}" Text="실행 설정" DockPanel.Dock="Left" VerticalAlignment="Center"/>
                                 <TextBlock x:Name="TxtJavaDetail" DockPanel.Dock="Right" FontSize="11.5" Foreground="{StaticResource Subtle}" VerticalAlignment="Center"
                                            Text="Java 환경 확인 중..."/>
@@ -676,11 +676,22 @@
 
                                 <Button x:Name="BtnStopAll"
                                         Style="{StaticResource DangerButton}"
-                                        MinWidth="112" Height="34"
+                                        MinWidth="112" Height="34" Margin="0,0,8,0"
                                         Click="BtnStopAll_Click">
                                     <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
                                         <TextBlock Style="{StaticResource Glyph}" Text="&#xE711;"/>
                                         <TextBlock Text="모두 종료" VerticalAlignment="Center"/>
+                                    </StackPanel>
+                                </Button>
+
+                                <Button x:Name="BtnCleanData"
+                                        Style="{StaticResource BaseButton}"
+                                        MinWidth="116" Height="34"
+                                        ToolTip="설정 파일(.properties)의 log.dirs / dataDir 경로를 안전하게 비워 Windows 로그 파일 잠금 크래시를 복구합니다."
+                                        Click="BtnCleanData_Click">
+                                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                                        <TextBlock Style="{StaticResource Glyph}" Text="&#xE74D;"/>
+                                        <TextBlock Text="데이터 초기화" VerticalAlignment="Center"/>
                                     </StackPanel>
                                 </Button>
                             </StackPanel>
@@ -693,12 +704,12 @@
                     <!-- 실행 로그 카드 -->
                     <Border Grid.Row="3" Style="{StaticResource CardStyle}" Margin="0">
                         <DockPanel LastChildFill="True">
-                            <DockPanel DockPanel.Dock="Top" Margin="0,0,0,8">
+                            <DockPanel DockPanel.Dock="Top" LastChildFill="False" Margin="0,0,0,8">
                                 <StackPanel Orientation="Horizontal" DockPanel.Dock="Left" VerticalAlignment="Center">
                                     <TextBlock Style="{StaticResource H2}" Text="실행 로그" Margin="0,0,10,0"/>
                                     <TextBlock x:Name="TxtLogCount" Text="(0 lines)" FontSize="12" Foreground="{StaticResource Subtle}"/>
                                 </StackPanel>
-                                <StackPanel Orientation="Horizontal" DockPanel.Dock="Right">
+                                <StackPanel Orientation="Horizontal" DockPanel.Dock="Right" VerticalAlignment="Center">
                                     <CheckBox x:Name="ChkAutoScroll" Content="자동 스크롤" IsChecked="True" Margin="0,0,12,0"/>
                                     <Button x:Name="BtnClearLog" Style="{StaticResource BaseButton}" Padding="10,4" Click="BtnClearLog_Click">
                                         <StackPanel Orientation="Horizontal">
@@ -711,7 +722,7 @@
 
                             <TextBox x:Name="TxtLog"
                                      IsReadOnly="True"
-                                     TextWrapping="Wrap"
+                                     TextWrapping="NoWrap"
                                      AcceptsReturn="True"
                                      FontFamily="Consolas"
                                      FontSize="12"
@@ -721,7 +732,7 @@
                                      BorderBrush="#1F2636"
                                      BorderThickness="1"
                                      VerticalScrollBarVisibility="Auto"
-                                     HorizontalScrollBarVisibility="Disabled"/>
+                                     HorizontalScrollBarVisibility="Auto"/>
                         </DockPanel>
                     </Border>
                 </Grid>
@@ -770,7 +781,7 @@
                         <!-- 좌측: 토픽 목록 & 생성/삭제 -->
                         <Border Grid.Column="0" Style="{StaticResource CardStyle}" Margin="0">
                             <DockPanel LastChildFill="True">
-                                <DockPanel DockPanel.Dock="Top" Margin="0,0,0,6">
+                                <DockPanel DockPanel.Dock="Top" LastChildFill="False" Margin="0,0,0,6">
                                     <TextBlock Style="{StaticResource H2}" Text="토픽 목록" DockPanel.Dock="Left" VerticalAlignment="Center"/>
                                     <TextBlock x:Name="TxtTopicCount" Text="0개" FontSize="11.5" Foreground="{StaticResource Subtle}" DockPanel.Dock="Right" VerticalAlignment="Center"/>
                                 </DockPanel>
@@ -1076,7 +1087,7 @@
 
                                         <!-- 상단: 파티션 & 오프셋 정보 테이블 -->
                                         <DockPanel Grid.Row="0" LastChildFill="True">
-                                            <DockPanel DockPanel.Dock="Top" Margin="0,0,0,6">
+                                            <DockPanel DockPanel.Dock="Top" LastChildFill="False" Margin="0,0,0,6">
                                                 <TextBlock Style="{StaticResource H2}" Text="파티션 &amp; 워터마크 오프셋 (행을 더블클릭하면 해당 파티션 메시지 탐색)" DockPanel.Dock="Left" VerticalAlignment="Center"/>
                                                 <Button x:Name="BtnRefreshPartitions" DockPanel.Dock="Right" Style="{StaticResource BaseButton}" Padding="10,4" Click="BtnRefreshPartitions_Click">
                                                     <TextBlock Text="새로고침" FontSize="12"/>
@@ -1112,7 +1123,7 @@
                                                     <ColumnDefinition Width="*"/>
                                                 </Grid.ColumnDefinitions>
 
-                                                <DockPanel Grid.Row="0" Grid.ColumnSpan="4" Margin="0,0,0,8">
+                                                <DockPanel Grid.Row="0" Grid.ColumnSpan="4" LastChildFill="False" Margin="0,0,0,8">
                                                     <TextBlock Style="{StaticResource H2}" Text="테스트 메시지 발행 (선택한 토픽)" DockPanel.Dock="Left" VerticalAlignment="Center"/>
                                                     <TextBlock x:Name="TxtProduceStatus" DockPanel.Dock="Right" FontSize="11.5" Foreground="{StaticResource Accent2}" VerticalAlignment="Center"/>
                                                 </DockPanel>

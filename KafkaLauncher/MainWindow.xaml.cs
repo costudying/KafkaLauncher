@@ -10,6 +10,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Threading;
 using Microsoft.Win32;
 using WinForms = System.Windows.Forms;
 
@@ -21,16 +22,22 @@ namespace KafkaLauncher
     public partial class MainWindow : Window
     {
         private const int MaxLogLines = 2000;
+        private const int LogTrimThreshold = 2400;
         private const int MaxLiveMessages = 1000;
 
         private readonly KafkaProcessManager _manager = new KafkaProcessManager();
         private readonly KafkaExplorerService _explorer = new KafkaExplorerService();
         private readonly KafkaLiveConsumer _liveConsumer = new KafkaLiveConsumer();
 
-        private readonly Queue<string> _logBuffer = new Queue<string>(MaxLogLines + 10);
+        private readonly Queue<string> _logBuffer = new Queue<string>(LogTrimThreshold + 16);
+        private readonly List<string> _pendingLogLines = new List<string>(256);
         private readonly object _logLock = new object();
+        private bool _logNeedsFullRefresh = false;
 
+        private readonly Queue<KafkaMessageRecord> _pendingLiveMessages = new Queue<KafkaMessageRecord>(256);
+        private readonly object _liveLock = new object();
         private readonly ObservableCollection<KafkaMessageRecord> _liveMessages = new ObservableCollection<KafkaMessageRecord>();
+        private readonly DispatcherTimer _uiFlushTimer;
 
         private LauncherSettings _settings;
         private List<KafkaTopicSummary> _allTopics = new List<KafkaTopicSummary>();
@@ -66,9 +73,17 @@ namespace KafkaLauncher
             _manager.ZookeeperStateChanged += (s, running) => SafeUiInvoke(() => UpdateZookeeperUi(running));
             _manager.KafkaStateChanged += (s, running) => SafeUiInvoke(() => UpdateKafkaUi(running));
 
-            _liveConsumer.MessageReceived += (s, record) => SafeUiInvoke(() => OnLiveMessageReceived(record));
+            _liveConsumer.MessageReceived += (s, record) => EnqueueLiveMessage(record);
             _liveConsumer.ErrorReceived += (s, err) => AppendLog("[LiveConsumer] " + err);
             _liveConsumer.StateChanged += (s, running) => SafeUiInvoke(() => UpdateConsumerUi(running));
+
+            // 대량 로그/메시지 폭주 시 UI 스레드 멈춤(프리징)을 막기 위한 100ms 배치 플러시 타이머
+            _uiFlushTimer = new DispatcherTimer(DispatcherPriority.Background, Dispatcher)
+            {
+                Interval = TimeSpan.FromMilliseconds(100)
+            };
+            _uiFlushTimer.Tick += UiFlushTimer_Tick;
+            _uiFlushTimer.Start();
 
             Loaded += async (s, e) => await CheckJavaEnvironmentAsync(logResult: true);
         }
@@ -471,6 +486,77 @@ namespace KafkaLauncher
             }
         }
 
+        private async void BtnCleanData_Click(object sender, RoutedEventArgs e)
+        {
+            if (_manager.IsZookeeperRunning || _manager.IsKafkaRunning)
+            {
+                MessageBox.Show(
+                    "실행 중인 Zookeeper 또는 Kafka 프로세스가 있습니다.\n먼저 '모두 종료'를 눌러 프로세스를 종료한 뒤 데이터 초기화를 진행해 주세요.",
+                    "프로세스 실행 중",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Warning);
+                return;
+            }
+
+            KafkaRunMode mode = GetSelectedRunMode();
+            var targets = new List<string>();
+
+            if (mode == KafkaRunMode.KRaft)
+            {
+                targets.AddRange(KafkaProcessManager.ParsePropertyDirectories(TxtKRaftConfig.Text.Trim(), "log.dirs"));
+            }
+            else
+            {
+                targets.AddRange(KafkaProcessManager.ParsePropertyDirectories(TxtKafkaConfig.Text.Trim(), "log.dirs"));
+                targets.AddRange(KafkaProcessManager.ParsePropertyDirectories(TxtZkConfig.Text.Trim(), "dataDir"));
+            }
+
+            targets = targets.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+            if (targets.Count == 0)
+            {
+                MessageBox.Show(
+                    "현재 설정 파일(.properties)에서 log.dirs 또는 dataDir 경로를 찾지 못했습니다.",
+                    "초기화 대상 없음",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Information);
+                return;
+            }
+
+            string listText = string.Join("\n", targets.Select(d => " • " + d));
+            string extraNote = mode == KafkaRunMode.KRaft
+                ? "\n\n※ KRaft 모드에서는 초기화 후 'KRaft 스토리지 포맷'을 다시 1회 실행해야 합니다."
+                : string.Empty;
+
+            var confirm = MessageBox.Show(
+                $"아래 로컬 데이터 디렉토리의 모든 토픽·메시지·스냅샷 파일을 삭제합니다.\n계속하시겠습니까?\n\n{listText}{extraNote}",
+                "로컬 데이터 초기화 확인",
+                MessageBoxButton.YesNo,
+                MessageBoxImage.Warning);
+
+            if (confirm != MessageBoxResult.Yes) return;
+
+            BtnCleanData.IsEnabled = false;
+            try
+            {
+                string result = await KafkaProcessManager.CleanDataDirectoriesAsync(targets);
+                AppendLog("[Clean Reset]\n" + result);
+                if (mode == KafkaRunMode.KRaft)
+                {
+                    TxtClusterId.Clear();
+                }
+                MessageBox.Show(result, "데이터 초기화 결과", MessageBoxButton.OK, MessageBoxImage.Information);
+            }
+            catch (Exception ex)
+            {
+                AppendLog("[Clean Reset Error] " + ex.Message);
+                MessageBox.Show(ex.Message, "데이터 초기화 오류", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+            finally
+            {
+                BtnCleanData.IsEnabled = true;
+            }
+        }
+
         private void UpdateProcessStateUi(bool zkRunning, bool kafkaRunning)
         {
             UpdateZookeeperUi(zkRunning);
@@ -494,51 +580,76 @@ namespace KafkaLauncher
         }
 
         // ======================================
-        // 런처 실행 로그
+        // 런처 실행 로그 (100ms 배치 플러시로 UI 프리징 방지)
         // ======================================
         private void AppendLog(string line)
         {
             if (_isClosing) return;
 
             string stamped = $"[{DateTime.Now:HH:mm:ss}] {line}";
-            int count;
-            bool trimmed = false;
-
             lock (_logLock)
             {
                 _logBuffer.Enqueue(stamped);
-                while (_logBuffer.Count > MaxLogLines)
+                if (_logBuffer.Count > LogTrimThreshold)
                 {
-                    _logBuffer.Dequeue();
-                    trimmed = true;
+                    while (_logBuffer.Count > MaxLogLines)
+                        _logBuffer.Dequeue();
+                    _pendingLogLines.Clear();
+                    _logNeedsFullRefresh = true;
                 }
-                count = _logBuffer.Count;
+                else if (!_logNeedsFullRefresh)
+                {
+                    _pendingLogLines.Add(stamped);
+                }
+            }
+        }
+
+        private void UiFlushTimer_Tick(object sender, EventArgs e)
+        {
+            if (_isClosing) return;
+            FlushPendingLogs();
+            FlushPendingLiveMessages();
+        }
+
+        private void FlushPendingLogs()
+        {
+            string batchText = null;
+            bool fullRefresh = false;
+            int count = 0;
+
+            lock (_logLock)
+            {
+                if (_logNeedsFullRefresh)
+                {
+                    fullRefresh = true;
+                    _logNeedsFullRefresh = false;
+                    _pendingLogLines.Clear();
+                    batchText = _logBuffer.Count > 0
+                        ? string.Join(Environment.NewLine, _logBuffer) + Environment.NewLine
+                        : string.Empty;
+                    count = _logBuffer.Count;
+                }
+                else if (_pendingLogLines.Count > 0)
+                {
+                    batchText = string.Join(Environment.NewLine, _pendingLogLines) + Environment.NewLine;
+                    _pendingLogLines.Clear();
+                    count = _logBuffer.Count;
+                }
             }
 
-            SafeUiInvoke(() =>
+            if (batchText == null) return;
+
+            if (fullRefresh)
+                TxtLog.Text = batchText;
+            else
+                TxtLog.AppendText(batchText);
+
+            TxtLogCount.Text = $"({count} lines)";
+
+            if (ChkAutoScroll.IsChecked == true)
             {
-                if (trimmed)
-                {
-                    string snapshot;
-                    lock (_logLock)
-                    {
-                        snapshot = string.Join(Environment.NewLine, _logBuffer) + Environment.NewLine;
-                    }
-                    TxtLog.Text = snapshot;
-                }
-                else
-                {
-                    TxtLog.AppendText(stamped + Environment.NewLine);
-                }
-
-                TxtLogCount.Text = $"({count} lines)";
-
-                if (ChkAutoScroll.IsChecked == true)
-                {
-                    TxtLog.CaretIndex = TxtLog.Text.Length;
-                    TxtLog.ScrollToEnd();
-                }
-            });
+                TxtLog.ScrollToEnd();
+            }
         }
 
         private void BtnClearLog_Click(object sender, RoutedEventArgs e)
@@ -546,6 +657,8 @@ namespace KafkaLauncher
             lock (_logLock)
             {
                 _logBuffer.Clear();
+                _pendingLogLines.Clear();
+                _logNeedsFullRefresh = false;
             }
             TxtLog.Clear();
             TxtLogCount.Text = "(0 lines)";
@@ -981,10 +1094,38 @@ namespace KafkaLauncher
             }
         }
 
-        private void OnLiveMessageReceived(KafkaMessageRecord record)
+        private void EnqueueLiveMessage(KafkaMessageRecord record)
         {
-            _liveMessageTotalCount++;
-            _liveMessages.Add(record);
+            if (_isClosing || record == null) return;
+            lock (_liveLock)
+            {
+                _pendingLiveMessages.Enqueue(record);
+                while (_pendingLiveMessages.Count > MaxLiveMessages)
+                {
+                    _pendingLiveMessages.Dequeue();
+                }
+            }
+        }
+
+        private void FlushPendingLiveMessages()
+        {
+            List<KafkaMessageRecord> batch = null;
+            lock (_liveLock)
+            {
+                if (_pendingLiveMessages.Count == 0) return;
+                batch = new List<KafkaMessageRecord>(_pendingLiveMessages.Count);
+                while (_pendingLiveMessages.Count > 0)
+                {
+                    batch.Add(_pendingLiveMessages.Dequeue());
+                }
+            }
+
+            foreach (var record in batch)
+            {
+                _liveMessageTotalCount++;
+                _liveMessages.Add(record);
+            }
+
             while (_liveMessages.Count > MaxLiveMessages)
             {
                 _liveMessages.RemoveAt(0);
@@ -1017,6 +1158,10 @@ namespace KafkaLauncher
 
         private void BtnClearConsumerLog_Click(object sender, RoutedEventArgs e)
         {
+            lock (_liveLock)
+            {
+                _pendingLiveMessages.Clear();
+            }
             _liveMessages.Clear();
             _liveMessageTotalCount = 0;
             TxtConsumerCount.Text = "(0 msgs)";
@@ -1246,6 +1391,7 @@ namespace KafkaLauncher
                 }
 
                 _isClosing = true;
+                _uiFlushTimer.Stop();
                 _liveConsumer.StopSync();
 
                 if (answer == MessageBoxResult.Yes)
@@ -1256,6 +1402,7 @@ namespace KafkaLauncher
             else
             {
                 _isClosing = true;
+                _uiFlushTimer.Stop();
                 _liveConsumer.StopSync();
             }
         }
