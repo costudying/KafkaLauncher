@@ -1,0 +1,1213 @@
+﻿<Window x:Class="KafkaLauncher.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Kafka Local Launcher" Height="820" Width="1220"
+        MinWidth="1020" MinHeight="700" Background="#0F1115"
+        Icon="Resources/app.ico"
+        Closing="Window_Closing">
+
+    <Window.Resources>
+        <!-- ===== Colors ===== -->
+        <SolidColorBrush x:Key="Bg" Color="#0F1115"/>
+        <SolidColorBrush x:Key="Card" Color="#151922"/>
+        <SolidColorBrush x:Key="CardBorder" Color="#222838"/>
+        <SolidColorBrush x:Key="InputBg" Color="#121622"/>
+        <SolidColorBrush x:Key="InputBorder" Color="#263149"/>
+        <SolidColorBrush x:Key="Accent" Color="#4F8EF7"/>
+        <SolidColorBrush x:Key="Accent2" Color="#34C38F"/>
+        <SolidColorBrush x:Key="Warning" Color="#F5A623"/>
+        <SolidColorBrush x:Key="Danger" Color="#E05A5A"/>
+        <SolidColorBrush x:Key="Subtle" Color="#8892A6"/>
+        <SolidColorBrush x:Key="Text" Color="#E8ECF3"/>
+
+        <!-- ===== Typography ===== -->
+        <Style x:Key="H1" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="20"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Foreground" Value="{StaticResource Text}"/>
+        </Style>
+        <Style x:Key="H2" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="13"/>
+            <Setter Property="FontWeight" Value="Medium"/>
+            <Setter Property="Foreground" Value="{StaticResource Subtle}"/>
+        </Style>
+        <Style TargetType="TextBlock">
+            <Setter Property="Foreground" Value="{StaticResource Text}"/>
+        </Style>
+
+        <!-- ===== TextBox ===== -->
+        <Style x:Key="DarkTextBox" TargetType="TextBox">
+            <Setter Property="Background" Value="{StaticResource InputBg}"/>
+            <Setter Property="Foreground" Value="{StaticResource Text}"/>
+            <Setter Property="CaretBrush" Value="{StaticResource Text}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource InputBorder}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Padding" Value="8,4"/>
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
+        </Style>
+
+        <!-- ===== Dark ComboBox ===== -->
+        <Style x:Key="DarkComboBox" TargetType="ComboBox">
+            <Setter Property="Background" Value="{StaticResource InputBg}"/>
+            <Setter Property="Foreground" Value="{StaticResource Text}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource InputBorder}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Padding" Value="8,4"/>
+            <Setter Property="Height" Value="28"/>
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ComboBox">
+                        <Grid>
+                            <ToggleButton x:Name="ToggleButton"
+                                          Focusable="False"
+                                          IsChecked="{Binding IsDropDownOpen, Mode=TwoWay, RelativeSource={RelativeSource TemplatedParent}}"
+                                          ClickMode="Press">
+                                <ToggleButton.Template>
+                                    <ControlTemplate TargetType="ToggleButton">
+                                        <Border x:Name="Border"
+                                                Background="{StaticResource InputBg}"
+                                                BorderBrush="{StaticResource InputBorder}"
+                                                BorderThickness="1"
+                                                CornerRadius="6">
+                                            <Grid>
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="*"/>
+                                                    <ColumnDefinition Width="22"/>
+                                                </Grid.ColumnDefinitions>
+                                                <Path Grid.Column="1" HorizontalAlignment="Center" VerticalAlignment="Center"
+                                                      Fill="{StaticResource Subtle}" Data="M 0 0 L 4 4 L 8 0 Z"/>
+                                            </Grid>
+                                        </Border>
+                                        <ControlTemplate.Triggers>
+                                            <Trigger Property="IsMouseOver" Value="True">
+                                                <Setter TargetName="Border" Property="BorderBrush" Value="{StaticResource Accent}"/>
+                                            </Trigger>
+                                        </ControlTemplate.Triggers>
+                                    </ControlTemplate>
+                                </ToggleButton.Template>
+                            </ToggleButton>
+                            <ContentPresenter x:Name="ContentSite"
+                                              IsHitTestVisible="False"
+                                              Content="{TemplateBinding SelectionBoxItem}"
+                                              ContentTemplate="{TemplateBinding SelectionBoxItemTemplate}"
+                                              Margin="8,0,24,0"
+                                              VerticalAlignment="Center"
+                                              HorizontalAlignment="Left"/>
+                            <Popup x:Name="Popup"
+                                   Placement="Bottom"
+                                   IsOpen="{TemplateBinding IsDropDownOpen}"
+                                   AllowsTransparency="True"
+                                   Focusable="False"
+                                   PopupAnimation="Fade">
+                                <Border MinWidth="{TemplateBinding ActualWidth}"
+                                        MaxHeight="260"
+                                        Background="#171C28"
+                                        BorderBrush="#2C3852"
+                                        BorderThickness="1"
+                                        CornerRadius="6"
+                                        Margin="0,2,0,0">
+                                    <ScrollViewer VerticalScrollBarVisibility="Auto">
+                                        <StackPanel IsItemsHost="True"/>
+                                    </ScrollViewer>
+                                </Border>
+                            </Popup>
+                        </Grid>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+            <Setter Property="ItemContainerStyle">
+                <Setter.Value>
+                    <Style TargetType="ComboBoxItem">
+                        <Setter Property="Foreground" Value="{StaticResource Text}"/>
+                        <Setter Property="Background" Value="Transparent"/>
+                        <Setter Property="Padding" Value="8,5"/>
+                        <Setter Property="Cursor" Value="Hand"/>
+                        <Setter Property="Template">
+                            <Setter.Value>
+                                <ControlTemplate TargetType="ComboBoxItem">
+                                    <Border x:Name="ItemBd" Background="{TemplateBinding Background}" Padding="{TemplateBinding Padding}">
+                                        <ContentPresenter/>
+                                    </Border>
+                                    <ControlTemplate.Triggers>
+                                        <Trigger Property="IsHighlighted" Value="True">
+                                            <Setter TargetName="ItemBd" Property="Background" Value="#253452"/>
+                                        </Trigger>
+                                        <Trigger Property="IsSelected" Value="True">
+                                            <Setter TargetName="ItemBd" Property="Background" Value="#2E4A7D"/>
+                                        </Trigger>
+                                    </ControlTemplate.Triggers>
+                                </ControlTemplate>
+                            </Setter.Value>
+                        </Setter>
+                    </Style>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- ===== Dark DataGrid ===== -->
+        <Style x:Key="DarkDataGrid" TargetType="DataGrid">
+            <Setter Property="Background" Value="#0B0D12"/>
+            <Setter Property="Foreground" Value="{StaticResource Text}"/>
+            <Setter Property="BorderBrush" Value="#1F2636"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="RowBackground" Value="#0F131C"/>
+            <Setter Property="AlternatingRowBackground" Value="#131824"/>
+            <Setter Property="HorizontalGridLinesBrush" Value="#1C2333"/>
+            <Setter Property="VerticalGridLinesBrush" Value="#1C2333"/>
+            <Setter Property="HeadersVisibility" Value="Column"/>
+            <Setter Property="AutoGenerateColumns" Value="False"/>
+            <Setter Property="IsReadOnly" Value="True"/>
+            <Setter Property="SelectionMode" Value="Single"/>
+            <Setter Property="SelectionUnit" Value="FullRow"/>
+            <Setter Property="CanUserAddRows" Value="False"/>
+            <Setter Property="CanUserDeleteRows" Value="False"/>
+            <Setter Property="CanUserResizeRows" Value="False"/>
+            <Setter Property="RowHeaderWidth" Value="0"/>
+            <Setter Property="FontFamily" Value="Consolas"/>
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="ColumnHeaderStyle">
+                <Setter.Value>
+                    <Style TargetType="DataGridColumnHeader">
+                        <Setter Property="Background" Value="#171D2B"/>
+                        <Setter Property="Foreground" Value="#9AA5BA"/>
+                        <Setter Property="FontFamily" Value="Segoe UI"/>
+                        <Setter Property="FontWeight" Value="SemiBold"/>
+                        <Setter Property="FontSize" Value="12"/>
+                        <Setter Property="Padding" Value="8,6"/>
+                        <Setter Property="BorderBrush" Value="#253048"/>
+                        <Setter Property="BorderThickness" Value="0,0,1,1"/>
+                    </Style>
+                </Setter.Value>
+            </Setter>
+            <Setter Property="CellStyle">
+                <Setter.Value>
+                    <Style TargetType="DataGridCell">
+                        <Setter Property="Padding" Value="6,4"/>
+                        <Setter Property="BorderThickness" Value="0"/>
+                        <Setter Property="Template">
+                            <Setter.Value>
+                                <ControlTemplate TargetType="DataGridCell">
+                                    <Border Padding="{TemplateBinding Padding}" Background="{TemplateBinding Background}">
+                                        <ContentPresenter VerticalAlignment="Center"/>
+                                    </Border>
+                                </ControlTemplate>
+                            </Setter.Value>
+                        </Setter>
+                        <Style.Triggers>
+                            <Trigger Property="IsSelected" Value="True">
+                                <Setter Property="Background" Value="#26437A"/>
+                                <Setter Property="Foreground" Value="White"/>
+                            </Trigger>
+                        </Style.Triggers>
+                    </Style>
+                </Setter.Value>
+            </Setter>
+            <Setter Property="RowStyle">
+                <Setter.Value>
+                    <Style TargetType="DataGridRow">
+                        <Setter Property="Background" Value="Transparent"/>
+                        <Style.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter Property="Background" Value="#1B253A"/>
+                            </Trigger>
+                            <Trigger Property="IsSelected" Value="True">
+                                <Setter Property="Background" Value="#26437A"/>
+                                <Setter Property="Foreground" Value="White"/>
+                            </Trigger>
+                        </Style.Triggers>
+                    </Style>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- ===== Card ===== -->
+        <Style x:Key="CardStyle" TargetType="Border">
+            <Setter Property="Background" Value="{StaticResource Card}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource CardBorder}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="CornerRadius" Value="12"/>
+            <Setter Property="Padding" Value="12"/>
+            <Setter Property="Margin" Value="0,0,0,10"/>
+            <Setter Property="SnapsToDevicePixels" Value="True"/>
+            <Setter Property="Effect">
+                <Setter.Value>
+                    <DropShadowEffect BlurRadius="12" ShadowDepth="0" Opacity="0.18" Color="#000000"/>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- ===== Icon font ===== -->
+        <FontFamily x:Key="IconFont">Segoe MDL2 Assets</FontFamily>
+        <Style x:Key="Glyph" TargetType="TextBlock">
+            <Setter Property="FontFamily" Value="{StaticResource IconFont}"/>
+            <Setter Property="FontSize" Value="13"/>
+            <Setter Property="Foreground" Value="{StaticResource Text}"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
+            <Setter Property="Margin" Value="0,0,6,0"/>
+        </Style>
+
+        <!-- ===== Buttons ===== -->
+        <Style x:Key="BaseButton" TargetType="Button">
+            <Setter Property="Foreground" Value="{StaticResource Text}"/>
+            <Setter Property="Background" Value="#1C2332"/>
+            <Setter Property="BorderBrush" Value="#263149"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Padding" Value="10,5"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="Bd"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="7"
+                                Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Bd" Property="Opacity" Value="0.9"/>
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="Bd" Property="Opacity" Value="0.8"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter TargetName="Bd" Property="Opacity" Value="0.45"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="AccentButton" TargetType="Button" BasedOn="{StaticResource BaseButton}">
+            <Setter Property="Background" Value="{StaticResource Accent}"/>
+            <Setter Property="BorderBrush" Value="#3F78CF"/>
+            <Setter Property="Foreground" Value="White"/>
+        </Style>
+
+        <Style x:Key="WarningButton" TargetType="Button" BasedOn="{StaticResource BaseButton}">
+            <Setter Property="Background" Value="#9C6A14"/>
+            <Setter Property="BorderBrush" Value="#C4881D"/>
+            <Setter Property="Foreground" Value="White"/>
+        </Style>
+
+        <Style x:Key="DangerButton" TargetType="Button" BasedOn="{StaticResource BaseButton}">
+            <Setter Property="Background" Value="#9B2C2C"/>
+            <Setter Property="BorderBrush" Value="#C53030"/>
+            <Setter Property="Foreground" Value="White"/>
+        </Style>
+
+        <!-- ===== Start/Stop ToggleButton ===== -->
+        <Style x:Key="StartToggleBase" TargetType="ToggleButton">
+            <Setter Property="MinWidth" Value="124"/>
+            <Setter Property="Height" Value="34"/>
+            <Setter Property="Margin" Value="0,0,8,0"/>
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ToggleButton">
+                        <Border x:Name="Bd" CornerRadius="7"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}">
+                            <Grid Margin="10,0" VerticalAlignment="Center">
+                                <StackPanel x:Name="StartPanel" Orientation="Horizontal" HorizontalAlignment="Center" Visibility="Visible">
+                                    <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE768;" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                                    <TextBlock Text="{TemplateBinding Content}" VerticalAlignment="Center"/>
+                                </StackPanel>
+                                <StackPanel x:Name="StopPanel" Orientation="Horizontal" HorizontalAlignment="Center" Visibility="Collapsed">
+                                    <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE71A;" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                                    <TextBlock Text="{TemplateBinding Tag}" VerticalAlignment="Center"/>
+                                </StackPanel>
+                            </Grid>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Bd" Property="Opacity" Value="0.92"/>
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="Bd" Property="Opacity" Value="0.82"/>
+                            </Trigger>
+                            <Trigger Property="IsChecked" Value="True">
+                                <Setter TargetName="StartPanel" Property="Visibility" Value="Collapsed"/>
+                                <Setter TargetName="StopPanel" Property="Visibility" Value="Visible"/>
+                                <Setter TargetName="Bd" Property="Background" Value="#B83B3B"/>
+                                <Setter TargetName="Bd" Property="BorderBrush" Value="#D64C4C"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter TargetName="Bd" Property="Opacity" Value="0.45"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="StartToggleZk" TargetType="ToggleButton" BasedOn="{StaticResource StartToggleBase}">
+            <Setter Property="Background" Value="{StaticResource Accent2}"/>
+            <Setter Property="BorderBrush" Value="#2AA374"/>
+        </Style>
+
+        <Style x:Key="StartToggleKafka" TargetType="ToggleButton" BasedOn="{StaticResource StartToggleBase}">
+            <Setter Property="Background" Value="{StaticResource Accent}"/>
+            <Setter Property="BorderBrush" Value="#3F78CF"/>
+        </Style>
+
+        <!-- ===== TabControl / TabItem ===== -->
+        <Style TargetType="TabControl">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Padding" Value="0"/>
+        </Style>
+
+        <Style TargetType="TabItem">
+            <Setter Property="Foreground" Value="{StaticResource Subtle}"/>
+            <Setter Property="FontSize" Value="12.5"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="TabItem">
+                        <Border x:Name="TabBorder"
+                                Background="#151922"
+                                BorderBrush="#222838"
+                                BorderThickness="1"
+                                CornerRadius="7"
+                                Padding="14,7"
+                                Margin="0,0,6,8">
+                            <ContentPresenter ContentSource="Header" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsSelected" Value="True">
+                                <Setter TargetName="TabBorder" Property="Background" Value="{StaticResource Accent}"/>
+                                <Setter TargetName="TabBorder" Property="BorderBrush" Value="#3F78CF"/>
+                                <Setter Property="Foreground" Value="White"/>
+                            </Trigger>
+                            <MultiTrigger>
+                                <MultiTrigger.Conditions>
+                                    <Condition Property="IsMouseOver" Value="True"/>
+                                    <Condition Property="IsSelected" Value="False"/>
+                                </MultiTrigger.Conditions>
+                                <Setter TargetName="TabBorder" Property="Background" Value="#1E2536"/>
+                                <Setter Property="Foreground" Value="{StaticResource Text}"/>
+                            </MultiTrigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- ===== RadioButton & CheckBox ===== -->
+        <Style TargetType="RadioButton">
+            <Setter Property="Foreground" Value="{StaticResource Text}"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
+            <Setter Property="Cursor" Value="Hand"/>
+        </Style>
+        <Style TargetType="CheckBox">
+            <Setter Property="Foreground" Value="{StaticResource Text}"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
+            <Setter Property="Cursor" Value="Hand"/>
+        </Style>
+
+        <!-- ===== Segmented Mode RadioButton (JSON/Raw/Hex/Headers) ===== -->
+        <Style x:Key="PillRadio" TargetType="RadioButton">
+            <Setter Property="Foreground" Value="{StaticResource Subtle}"/>
+            <Setter Property="FontSize" Value="11.5"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Margin" Value="0,0,4,0"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="RadioButton">
+                        <Border x:Name="Bd" Background="#161C29" BorderBrush="#253048" BorderThickness="1" CornerRadius="5" Padding="8,3">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsChecked" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="{StaticResource Accent}"/>
+                                <Setter TargetName="Bd" Property="BorderBrush" Value="#3F78CF"/>
+                                <Setter Property="Foreground" Value="White"/>
+                            </Trigger>
+                            <MultiTrigger>
+                                <MultiTrigger.Conditions>
+                                    <Condition Property="IsMouseOver" Value="True"/>
+                                    <Condition Property="IsChecked" Value="False"/>
+                                </MultiTrigger.Conditions>
+                                <Setter TargetName="Bd" Property="Background" Value="#20293E"/>
+                                <Setter Property="Foreground" Value="{StaticResource Text}"/>
+                            </MultiTrigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </Window.Resources>
+
+    <Grid Background="{StaticResource Bg}" Margin="14">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+
+        <!-- ===== Global Header ===== -->
+        <DockPanel Grid.Row="0" LastChildFill="False" Margin="0,0,0,10">
+            <StackPanel Orientation="Horizontal" DockPanel.Dock="Left" VerticalAlignment="Center">
+                <Image Source="Resources/app_icon.png" Width="28" Height="28" Margin="0,0,10,0"
+                       RenderOptions.BitmapScalingMode="HighQuality" VerticalAlignment="Center"/>
+                <TextBlock Style="{StaticResource H1}" Text="Kafka Local Launcher" VerticalAlignment="Center"/>
+                <Border x:Name="BadgeMode" Background="{StaticResource Accent}" CornerRadius="6" Margin="10,0,0,0" Padding="8,2" VerticalAlignment="Center">
+                    <TextBlock x:Name="TxtModeBadge" Text="Zookeeper" Foreground="White" FontSize="11.5" FontWeight="Bold"/>
+                </Border>
+            </StackPanel>
+
+            <StackPanel Orientation="Horizontal" DockPanel.Dock="Right" VerticalAlignment="Center">
+                <Border x:Name="PillJava" Background="#1A202E" BorderBrush="#263149" BorderThickness="1" CornerRadius="12" Padding="10,4" Margin="0,0,8,0"
+                        ToolTip="로컬 Kafka 실행용 Java 환경 진단 상태">
+                    <StackPanel Orientation="Horizontal">
+                        <Ellipse x:Name="DotJava" Width="8" Height="8" Fill="#5A6478" Margin="0,0,6,0" VerticalAlignment="Center"/>
+                        <TextBlock x:Name="TxtJavaBadge" Text="Java: 확인 중..." FontSize="12" Foreground="{StaticResource Subtle}"/>
+                    </StackPanel>
+                </Border>
+                <Border x:Name="PillZk" Background="#1A202E" BorderBrush="#263149" BorderThickness="1" CornerRadius="12" Padding="10,4" Margin="0,0,8,0">
+                    <StackPanel Orientation="Horizontal">
+                        <Ellipse x:Name="DotZk" Width="8" Height="8" Fill="#5A6478" Margin="0,0,6,0" VerticalAlignment="Center"/>
+                        <TextBlock x:Name="TxtZkState" Text="ZK: 대기" FontSize="12" Foreground="{StaticResource Subtle}"/>
+                    </StackPanel>
+                </Border>
+                <Border Background="#1A202E" BorderBrush="#263149" BorderThickness="1" CornerRadius="12" Padding="10,4" Margin="0,0,12,0">
+                    <StackPanel Orientation="Horizontal">
+                        <Ellipse x:Name="DotKafka" Width="8" Height="8" Fill="#5A6478" Margin="0,0,6,0" VerticalAlignment="Center"/>
+                        <TextBlock x:Name="TxtKafkaState" Text="Kafka: 대기" FontSize="12" Foreground="{StaticResource Subtle}"/>
+                    </StackPanel>
+                </Border>
+                <TextBlock Style="{StaticResource H2}" Text="상태: " VerticalAlignment="Center"/>
+                <TextBlock x:Name="TxtStatus" Style="{StaticResource H2}" Foreground="{StaticResource Accent2}" Text="대기" VerticalAlignment="Center"/>
+            </StackPanel>
+        </DockPanel>
+
+        <!-- ===== Main Tabs ===== -->
+        <TabControl Grid.Row="1" x:Name="MainTabs">
+
+            <!-- ==================== TAB 1: 런처 & 로그 ==================== -->
+            <TabItem Header="런처 &amp; 로그">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                    </Grid.RowDefinitions>
+
+                    <!-- Kafka Root & 실행 모드 -->
+                    <Border Grid.Row="0" Style="{StaticResource CardStyle}">
+                        <Grid>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                            </Grid.RowDefinitions>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+
+                            <DockPanel Grid.Row="0" Grid.ColumnSpan="3" Margin="0,0,0,8">
+                                <TextBlock Style="{StaticResource H2}" Text="Kafka Root 경로" DockPanel.Dock="Left" VerticalAlignment="Center"/>
+                                <StackPanel Orientation="Horizontal" DockPanel.Dock="Right">
+                                    <TextBlock Style="{StaticResource H2}" Text="실행 모드: " VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                    <RadioButton x:Name="RbModeZk" Content="Zookeeper 모드" GroupName="RunMode" Margin="0,0,14,0" Checked="RunMode_Changed"/>
+                                    <RadioButton x:Name="RbModeKRaft" Content="KRaft 모드 (Kafka 3.3+)" GroupName="RunMode" Checked="RunMode_Changed"/>
+                                </StackPanel>
+                            </DockPanel>
+
+                            <TextBox x:Name="TxtKafkaRoot" Grid.Row="1" Grid.Column="0" Height="30"
+                                     Style="{StaticResource DarkTextBox}" Margin="0,0,8,0"/>
+
+                            <Button x:Name="BtnBrowseRoot" Grid.Row="1" Grid.Column="1"
+                                    Style="{StaticResource BaseButton}" MinWidth="100" Height="30" Margin="0,0,8,0"
+                                    Click="BtnBrowseRoot_Click">
+                                <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                                    <TextBlock Style="{StaticResource Glyph}" Text="&#xE8B7;"/>
+                                    <TextBlock Text="찾아보기" VerticalAlignment="Center"/>
+                                </StackPanel>
+                            </Button>
+
+                            <Button x:Name="BtnSaveSettings" Grid.Row="1" Grid.Column="2"
+                                    Style="{StaticResource BaseButton}" MinWidth="92" Height="30"
+                                    Click="BtnSaveSettings_Click">
+                                <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                                    <TextBlock Style="{StaticResource Glyph}" Text="&#xE74E;"/>
+                                    <TextBlock Text="설정 저장" VerticalAlignment="Center"/>
+                                </StackPanel>
+                            </Button>
+                        </Grid>
+                    </Border>
+
+                    <!-- 설정 카드 -->
+                    <Border Grid.Row="1" Style="{StaticResource CardStyle}">
+                        <Grid>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                            </Grid.RowDefinitions>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+
+                            <DockPanel Grid.Row="0" Grid.ColumnSpan="6" Margin="0,0,0,8">
+                                <TextBlock Style="{StaticResource H2}" Text="실행 설정" DockPanel.Dock="Left" VerticalAlignment="Center"/>
+                                <TextBlock x:Name="TxtJavaDetail" DockPanel.Dock="Right" FontSize="11.5" Foreground="{StaticResource Subtle}" VerticalAlignment="Center"
+                                           Text="Java 환경 확인 중..."/>
+                            </DockPanel>
+
+                            <!-- Zookeeper 모드 전용 Config 행 -->
+                            <TextBlock x:Name="LblZkConfig" Text="Zookeeper config" Grid.Row="1" Grid.Column="0"
+                                       VerticalAlignment="Center" Foreground="{StaticResource Subtle}" Margin="0,0,8,8"/>
+                            <TextBox x:Name="TxtZkConfig" Grid.Row="1" Grid.Column="1"
+                                     Style="{StaticResource DarkTextBox}" Height="28" Margin="0,0,6,8"/>
+                            <Button x:Name="BtnBrowseZkConfig" Grid.Row="1" Grid.Column="2" Content="..."
+                                    Style="{StaticResource BaseButton}" Padding="8,2" Height="28" Margin="0,0,14,8"
+                                    Click="BtnBrowseZkConfig_Click"/>
+
+                            <TextBlock x:Name="LblKafkaConfig" Text="Kafka config" Grid.Row="1" Grid.Column="3"
+                                       VerticalAlignment="Center" Foreground="{StaticResource Subtle}" Margin="0,0,8,8"/>
+                            <TextBox x:Name="TxtKafkaConfig" Grid.Row="1" Grid.Column="4"
+                                     Style="{StaticResource DarkTextBox}" Height="28" Margin="0,0,6,8"/>
+                            <Button x:Name="BtnBrowseKafkaConfig" Grid.Row="1" Grid.Column="5" Content="..."
+                                    Style="{StaticResource BaseButton}" Padding="8,2" Height="28" Margin="0,0,0,8"
+                                    Click="BtnBrowseKafkaConfig_Click"/>
+
+                            <!-- KRaft 모드 전용 Config & Cluster ID 행 -->
+                            <TextBlock x:Name="LblKRaftConfig" Text="KRaft config" Grid.Row="2" Grid.Column="0"
+                                       VerticalAlignment="Center" Foreground="{StaticResource Subtle}" Margin="0,0,8,8" Visibility="Collapsed"/>
+                            <TextBox x:Name="TxtKRaftConfig" Grid.Row="2" Grid.Column="1"
+                                     Style="{StaticResource DarkTextBox}" Height="28" Margin="0,0,6,8" Visibility="Collapsed"/>
+                            <Button x:Name="BtnBrowseKRaftConfig" Grid.Row="2" Grid.Column="2" Content="..."
+                                    Style="{StaticResource BaseButton}" Padding="8,2" Height="28" Margin="0,0,14,8" Visibility="Collapsed"
+                                    Click="BtnBrowseKRaftConfig_Click"/>
+
+                            <TextBlock x:Name="LblClusterId" Text="Cluster ID" Grid.Row="2" Grid.Column="3"
+                                       VerticalAlignment="Center" Foreground="{StaticResource Subtle}" Margin="0,0,8,8" Visibility="Collapsed"/>
+                            <TextBox x:Name="TxtClusterId" Grid.Row="2" Grid.Column="4" Grid.ColumnSpan="2"
+                                     Style="{StaticResource DarkTextBox}" Height="28" Margin="0,0,0,8" Visibility="Collapsed"
+                                     ToolTip="비워두면 kafka-storage.bat random-uuid로 자동 생성됩니다."/>
+
+                            <!-- Portable JDK / JAVA_HOME (선택) -->
+                            <TextBlock Text="JDK 경로 (선택)" Grid.Row="3" Grid.Column="0"
+                                       VerticalAlignment="Center" Foreground="{StaticResource Subtle}" Margin="0,0,8,8"/>
+                            <Grid Grid.Row="3" Grid.Column="1" Grid.ColumnSpan="5" Margin="0,0,0,8">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBox x:Name="TxtJavaHome" Grid.Column="0" Style="{StaticResource DarkTextBox}" Height="28" Margin="0,0,6,0"
+                                         ToolTip="비워두면 시스템 JAVA_HOME / PATH를 자동 사용합니다. Java 미설치 PC에서는 압축을 푼 Portable JDK(예: Temurin OpenJDK) 폴더를 지정하세요."/>
+                                <Button x:Name="BtnBrowseJavaHome" Grid.Column="1" Style="{StaticResource BaseButton}" Height="28" Padding="10,2" Margin="0,0,6,0"
+                                        Click="BtnBrowseJavaHome_Click">
+                                    <TextBlock Text="JDK 선택" FontSize="12"/>
+                                </Button>
+                                <Button x:Name="BtnResetJavaHome" Grid.Column="2" Style="{StaticResource BaseButton}" Height="28" Padding="10,2" Margin="0,0,6,0"
+                                        ToolTip="지정한 Portable JDK 경로를 지우고 시스템 Java 자동 감지로 되돌립니다."
+                                        Click="BtnResetJavaHome_Click">
+                                    <TextBlock Text="자동" FontSize="12"/>
+                                </Button>
+                                <Button x:Name="BtnCheckJava" Grid.Column="3" Style="{StaticResource BaseButton}" Height="28" Padding="10,2"
+                                        Click="BtnCheckJava_Click">
+                                    <TextBlock Text="진단" FontSize="12"/>
+                                </Button>
+                            </Grid>
+
+                            <!-- Heap Xms / Xmx -->
+                            <TextBlock Text="Heap Xms" Grid.Row="4" Grid.Column="0"
+                                       VerticalAlignment="Center" Foreground="{StaticResource Subtle}" Margin="0,0,8,0"/>
+                            <TextBox x:Name="TxtXms" Grid.Row="4" Grid.Column="1" Grid.ColumnSpan="2"
+                                     Style="{StaticResource DarkTextBox}" Height="28" Margin="0,0,14,0" Text="512M"/>
+
+                            <TextBlock Text="Heap Xmx" Grid.Row="4" Grid.Column="3"
+                                       VerticalAlignment="Center" Foreground="{StaticResource Subtle}" Margin="0,0,8,0"/>
+                            <TextBox x:Name="TxtXmx" Grid.Row="4" Grid.Column="4" Grid.ColumnSpan="2"
+                                     Style="{StaticResource DarkTextBox}" Height="28" Margin="0" Text="1G"/>
+                        </Grid>
+                    </Border>
+
+                    <!-- 실행 제어 카드 -->
+                    <Border Grid.Row="2" Style="{StaticResource CardStyle}">
+                        <DockPanel LastChildFill="False">
+                            <StackPanel Orientation="Horizontal" DockPanel.Dock="Left">
+                                <ToggleButton x:Name="BtnStartZk"
+                                              Style="{StaticResource StartToggleZk}"
+                                              Content="Zookeeper 시작"
+                                              Tag="Zookeeper 중지"
+                                              MinWidth="148"
+                                              Click="BtnStartZk_Click"/>
+
+                                <Button x:Name="BtnFormatKRaft"
+                                        Style="{StaticResource WarningButton}"
+                                        MinWidth="156" Height="34" Margin="0,0,8,0"
+                                        Visibility="Collapsed"
+                                        ToolTip="최초 KRaft 실행 전 kafka-storage.bat format으로 로그 디렉토리를 초기화합니다."
+                                        Click="BtnFormatKRaft_Click">
+                                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                                        <TextBlock Style="{StaticResource Glyph}" Text="&#xE7B8;"/>
+                                        <TextBlock Text="KRaft 스토리지 포맷" VerticalAlignment="Center"/>
+                                    </StackPanel>
+                                </Button>
+
+                                <ToggleButton x:Name="BtnStartKafka"
+                                              Style="{StaticResource StartToggleKafka}"
+                                              Content="Kafka 시작"
+                                              Tag="Kafka 중지"
+                                              MinWidth="136"
+                                              Click="BtnStartKafka_Click"/>
+
+                                <Button x:Name="BtnStopAll"
+                                        Style="{StaticResource DangerButton}"
+                                        MinWidth="112" Height="34"
+                                        Click="BtnStopAll_Click">
+                                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                                        <TextBlock Style="{StaticResource Glyph}" Text="&#xE711;"/>
+                                        <TextBlock Text="모두 종료" VerticalAlignment="Center"/>
+                                    </StackPanel>
+                                </Button>
+                            </StackPanel>
+
+                            <CheckBox x:Name="ChkNewWindow" Content="새 콘솔창으로 실행 (cmd)"
+                                      DockPanel.Dock="Right" Margin="8,0,0,0"/>
+                        </DockPanel>
+                    </Border>
+
+                    <!-- 실행 로그 카드 -->
+                    <Border Grid.Row="3" Style="{StaticResource CardStyle}" Margin="0">
+                        <DockPanel LastChildFill="True">
+                            <DockPanel DockPanel.Dock="Top" Margin="0,0,0,8">
+                                <StackPanel Orientation="Horizontal" DockPanel.Dock="Left" VerticalAlignment="Center">
+                                    <TextBlock Style="{StaticResource H2}" Text="실행 로그" Margin="0,0,10,0"/>
+                                    <TextBlock x:Name="TxtLogCount" Text="(0 lines)" FontSize="12" Foreground="{StaticResource Subtle}"/>
+                                </StackPanel>
+                                <StackPanel Orientation="Horizontal" DockPanel.Dock="Right">
+                                    <CheckBox x:Name="ChkAutoScroll" Content="자동 스크롤" IsChecked="True" Margin="0,0,12,0"/>
+                                    <Button x:Name="BtnClearLog" Style="{StaticResource BaseButton}" Padding="10,4" Click="BtnClearLog_Click">
+                                        <StackPanel Orientation="Horizontal">
+                                            <TextBlock Style="{StaticResource Glyph}" Text="&#xE74D;" FontSize="12"/>
+                                            <TextBlock Text="로그 지우기" FontSize="12" VerticalAlignment="Center"/>
+                                        </StackPanel>
+                                    </Button>
+                                </StackPanel>
+                            </DockPanel>
+
+                            <TextBox x:Name="TxtLog"
+                                     IsReadOnly="True"
+                                     TextWrapping="Wrap"
+                                     AcceptsReturn="True"
+                                     FontFamily="Consolas"
+                                     FontSize="12"
+                                     Padding="8"
+                                     Background="#0B0D12"
+                                     Foreground="{StaticResource Text}"
+                                     BorderBrush="#1F2636"
+                                     BorderThickness="1"
+                                     VerticalScrollBarVisibility="Auto"
+                                     HorizontalScrollBarVisibility="Disabled"/>
+                        </DockPanel>
+                    </Border>
+                </Grid>
+            </TabItem>
+
+            <!-- ==================== TAB 2: Offset Explorer (Confluent.Kafka 고속 탐색기) ==================== -->
+            <TabItem Header="Offset Explorer (토픽 / 메시지)">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                    </Grid.RowDefinitions>
+
+                    <!-- 상단 클러스터 연결 바 -->
+                    <Border Grid.Row="0" Style="{StaticResource CardStyle}">
+                        <DockPanel LastChildFill="False">
+                            <StackPanel Orientation="Horizontal" DockPanel.Dock="Left" VerticalAlignment="Center">
+                                <TextBlock Text="Bootstrap Server" Foreground="{StaticResource Subtle}" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                <TextBox x:Name="TxtBootstrapServer" Style="{StaticResource DarkTextBox}" Width="230" Height="30" Text="localhost:9092" Margin="0,0,8,0"/>
+                                <Button x:Name="BtnConnectCluster" Style="{StaticResource AccentButton}" Height="30" Margin="0,0,12,0" Click="BtnConnectCluster_Click">
+                                    <StackPanel Orientation="Horizontal">
+                                        <TextBlock Style="{StaticResource Glyph}" Text="&#xE72C;"/>
+                                        <TextBlock Text="연결 / 새로고침" VerticalAlignment="Center"/>
+                                    </StackPanel>
+                                </Button>
+                                <CheckBox x:Name="ChkHideInternalTopics" Content="내부 토픽(__*) 숨기기" IsChecked="True"
+                                          Checked="ChkHideInternalTopics_Changed" Unchecked="ChkHideInternalTopics_Changed"/>
+                            </StackPanel>
+
+                            <StackPanel Orientation="Horizontal" DockPanel.Dock="Right" VerticalAlignment="Center">
+                                <Ellipse x:Name="DotCluster" Width="8" Height="8" Fill="#5A6478" Margin="0,0,6,0" VerticalAlignment="Center"/>
+                                <TextBlock x:Name="TxtClusterStatus" VerticalAlignment="Center"
+                                           Foreground="{StaticResource Subtle}" FontSize="12" Text="미연결 · '연결 / 새로고침'을 클릭하세요."/>
+                            </StackPanel>
+                        </DockPanel>
+                    </Border>
+
+                    <!-- 본문: 좌측 토픽 트리/목록 + 우측 Explorer 서브탭 -->
+                    <Grid Grid.Row="1">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="270" MinWidth="210"/>
+                            <ColumnDefinition Width="8"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+
+                        <!-- 좌측: 토픽 목록 & 생성/삭제 -->
+                        <Border Grid.Column="0" Style="{StaticResource CardStyle}" Margin="0">
+                            <DockPanel LastChildFill="True">
+                                <DockPanel DockPanel.Dock="Top" Margin="0,0,0,6">
+                                    <TextBlock Style="{StaticResource H2}" Text="토픽 목록" DockPanel.Dock="Left" VerticalAlignment="Center"/>
+                                    <TextBlock x:Name="TxtTopicCount" Text="0개" FontSize="11.5" Foreground="{StaticResource Subtle}" DockPanel.Dock="Right" VerticalAlignment="Center"/>
+                                </DockPanel>
+
+                                <TextBox x:Name="TxtTopicFilter" DockPanel.Dock="Top" Style="{StaticResource DarkTextBox}"
+                                         Height="28" Margin="0,0,0,8"
+                                         ToolTip="토픽 이름 검색 필터"
+                                         TextChanged="TxtTopicFilter_TextChanged"/>
+
+                                <!-- 하단 토픽 생성 / 삭제 영역 -->
+                                <StackPanel DockPanel.Dock="Bottom" Margin="0,8,0,0">
+                                    <Border Background="#10141E" BorderBrush="#222B3F" BorderThickness="1" CornerRadius="8" Padding="8" Margin="0,0,0,6">
+                                        <StackPanel>
+                                            <TextBlock Text="새 토픽 생성" FontSize="11.5" Foreground="{StaticResource Subtle}" Margin="0,0,0,6"/>
+                                            <TextBox x:Name="TxtNewTopicName" Style="{StaticResource DarkTextBox}" Height="26" Margin="0,0,0,6" ToolTip="새 토픽 이름"/>
+                                            <Grid>
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="Auto"/>
+                                                    <ColumnDefinition Width="*"/>
+                                                    <ColumnDefinition Width="Auto"/>
+                                                    <ColumnDefinition Width="*"/>
+                                                    <ColumnDefinition Width="Auto"/>
+                                                </Grid.ColumnDefinitions>
+                                                <TextBlock Grid.Column="0" Text="P" Foreground="{StaticResource Subtle}" VerticalAlignment="Center" Margin="0,0,4,0"/>
+                                                <TextBox x:Name="TxtNewTopicPartitions" Grid.Column="1" Style="{StaticResource DarkTextBox}" Height="26" Text="1" Margin="0,0,6,0" ToolTip="파티션 수"/>
+                                                <TextBlock Grid.Column="2" Text="R" Foreground="{StaticResource Subtle}" VerticalAlignment="Center" Margin="0,0,4,0"/>
+                                                <TextBox x:Name="TxtNewTopicReplication" Grid.Column="3" Style="{StaticResource DarkTextBox}" Height="26" Text="1" Margin="0,0,6,0" ToolTip="복제 팩터"/>
+                                                <Button x:Name="BtnCreateTopic" Grid.Column="4" Style="{StaticResource AccentButton}" Height="26" Padding="10,2" Click="BtnCreateTopic_Click">
+                                                    <TextBlock Text="생성" FontSize="12"/>
+                                                </Button>
+                                            </Grid>
+                                        </StackPanel>
+                                    </Border>
+
+                                    <Button x:Name="BtnDeleteTopic" Style="{StaticResource DangerButton}" Height="30" Click="BtnDeleteTopic_Click">
+                                        <StackPanel Orientation="Horizontal">
+                                            <TextBlock Style="{StaticResource Glyph}" Text="&#xE74D;" FontSize="12"/>
+                                            <TextBlock Text="선택 토픽 삭제" FontSize="12" VerticalAlignment="Center"/>
+                                        </StackPanel>
+                                    </Button>
+                                </StackPanel>
+
+                                <!-- 토픽 ListBox -->
+                                <ListBox x:Name="LstTopics"
+                                         Background="#0B0D12"
+                                         Foreground="{StaticResource Text}"
+                                         BorderBrush="#1F2636"
+                                         BorderThickness="1"
+                                         HorizontalContentAlignment="Stretch"
+                                         SelectionChanged="LstTopics_SelectionChanged">
+                                    <ListBox.ItemContainerStyle>
+                                        <Style TargetType="ListBoxItem">
+                                            <Setter Property="Padding" Value="8,6"/>
+                                            <Setter Property="Cursor" Value="Hand"/>
+                                            <Setter Property="Background" Value="Transparent"/>
+                                            <Setter Property="Template">
+                                                <Setter.Value>
+                                                    <ControlTemplate TargetType="ListBoxItem">
+                                                        <Border x:Name="Bd" Background="{TemplateBinding Background}" Padding="{TemplateBinding Padding}" CornerRadius="5" Margin="2,1">
+                                                            <ContentPresenter/>
+                                                        </Border>
+                                                        <ControlTemplate.Triggers>
+                                                            <Trigger Property="IsMouseOver" Value="True">
+                                                                <Setter TargetName="Bd" Property="Background" Value="#1A2233"/>
+                                                            </Trigger>
+                                                            <Trigger Property="IsSelected" Value="True">
+                                                                <Setter TargetName="Bd" Property="Background" Value="#26437A"/>
+                                                            </Trigger>
+                                                        </ControlTemplate.Triggers>
+                                                    </ControlTemplate>
+                                                </Setter.Value>
+                                            </Setter>
+                                        </Style>
+                                    </ListBox.ItemContainerStyle>
+                                    <ListBox.ItemTemplate>
+                                        <DataTemplate>
+                                            <DockPanel LastChildFill="True">
+                                                <Border DockPanel.Dock="Right" Background="#1D263A" CornerRadius="4" Padding="5,1" Margin="6,0,0,0" VerticalAlignment="Center">
+                                                    <TextBlock Text="{Binding DisplayBadge}" FontSize="10.5" Foreground="#8DB5F8" FontFamily="Consolas"/>
+                                                </Border>
+                                                <TextBlock Text="{Binding Name}" FontFamily="Consolas" FontSize="12" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
+                                            </DockPanel>
+                                        </DataTemplate>
+                                    </ListBox.ItemTemplate>
+                                </ListBox>
+                            </DockPanel>
+                        </Border>
+
+                        <GridSplitter Grid.Column="1" Width="8" HorizontalAlignment="Stretch" Background="Transparent" Cursor="SizeWE"/>
+
+                        <!-- 우측: Offset Explorer 4개 서브탭 -->
+                        <Border Grid.Column="2" Style="{StaticResource CardStyle}" Margin="0">
+                            <TabControl x:Name="ExplorerTabs">
+
+                                <!-- ===== 서브탭 1: 메시지 탐색 (Offset Explorer) ===== -->
+                                <TabItem Header="메시지 탐색">
+                                    <Grid>
+                                        <Grid.RowDefinitions>
+                                            <RowDefinition Height="Auto"/>
+                                            <RowDefinition Height="Auto"/>
+                                            <RowDefinition Height="*" MinHeight="140"/>
+                                            <RowDefinition Height="6"/>
+                                            <RowDefinition Height="210" MinHeight="120"/>
+                                        </Grid.RowDefinitions>
+
+                                        <!-- 조회 컨트롤 툴바 -->
+                                        <WrapPanel Grid.Row="0" Margin="0,0,0,6" VerticalAlignment="Center">
+                                            <StackPanel Orientation="Horizontal" Margin="0,0,10,4">
+                                                <TextBlock Text="파티션" Foreground="{StaticResource Subtle}" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                                                <ComboBox x:Name="CboPartition" Style="{StaticResource DarkComboBox}" Width="86"/>
+                                            </StackPanel>
+
+                                            <StackPanel Orientation="Horizontal" Margin="0,0,10,4">
+                                                <TextBlock Text="방식" Foreground="{StaticResource Subtle}" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                                                <ComboBox x:Name="CboFetchMode" Style="{StaticResource DarkComboBox}" Width="116" SelectionChanged="CboFetchMode_SelectionChanged">
+                                                    <ComboBoxItem Content="최신 N건" IsSelected="True"/>
+                                                    <ComboBoxItem Content="처음부터"/>
+                                                    <ComboBoxItem Content="지정 오프셋"/>
+                                                </ComboBox>
+                                            </StackPanel>
+
+                                            <StackPanel x:Name="PnlSpecificOffset" Orientation="Horizontal" Margin="0,0,10,4" Visibility="Collapsed">
+                                                <TextBlock Text="오프셋" Foreground="{StaticResource Subtle}" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                                                <Button x:Name="BtnOffsetPrev" Style="{StaticResource BaseButton}" Content="&lt;" Height="28" Padding="7,2" Margin="0,0,4,0" ToolTip="이전 구간 오프셋" Click="BtnOffsetPrev_Click"/>
+                                                <TextBox x:Name="TxtSpecificOffset" Style="{StaticResource DarkTextBox}" Width="74" Height="28" Text="0" Margin="0,0,4,0"/>
+                                                <Button x:Name="BtnOffsetNext" Style="{StaticResource BaseButton}" Content="&gt;" Height="28" Padding="7,2" ToolTip="다음 구간 오프셋" Click="BtnOffsetNext_Click"/>
+                                            </StackPanel>
+
+                                            <StackPanel Orientation="Horizontal" Margin="0,0,10,4">
+                                                <TextBlock Text="개수" Foreground="{StaticResource Subtle}" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                                                <ComboBox x:Name="CboMaxMessages" Style="{StaticResource DarkComboBox}" Width="72">
+                                                    <ComboBoxItem Content="20"/>
+                                                    <ComboBoxItem Content="50" IsSelected="True"/>
+                                                    <ComboBoxItem Content="100"/>
+                                                    <ComboBoxItem Content="200"/>
+                                                    <ComboBoxItem Content="500"/>
+                                                </ComboBox>
+                                            </StackPanel>
+
+                                            <Button x:Name="BtnFetchMessages" Style="{StaticResource AccentButton}" Height="28" Padding="14,3" Margin="0,0,10,4" Click="BtnFetchMessages_Click">
+                                                <StackPanel Orientation="Horizontal">
+                                                    <TextBlock Style="{StaticResource Glyph}" Text="&#xE721;" FontSize="12"/>
+                                                    <TextBlock Text="조회" FontSize="12" VerticalAlignment="Center"/>
+                                                </StackPanel>
+                                            </Button>
+
+                                            <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
+                                                <TextBlock Text="결과 필터" Foreground="{StaticResource Subtle}" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                                                <TextBox x:Name="TxtMessageKeyword" Style="{StaticResource DarkTextBox}" Width="140" Height="28"
+                                                         ToolTip="조회된 Key/Value 내 키워드 실시간 필터"
+                                                         TextChanged="TxtMessageKeyword_TextChanged"/>
+                                            </StackPanel>
+                                        </WrapPanel>
+
+                                        <!-- 요약 상태 바 -->
+                                        <Border Grid.Row="1" Background="#10141E" BorderBrush="#1F2636" BorderThickness="1" CornerRadius="6" Padding="8,4" Margin="0,0,0,6">
+                                            <TextBlock x:Name="TxtExplorerSummary" FontSize="12" Foreground="{StaticResource Subtle}"
+                                                       Text="좌측에서 토픽을 선택하고 '조회'를 클릭하세요."/>
+                                        </Border>
+
+                                        <!-- 메시지 DataGrid -->
+                                        <DataGrid x:Name="DgMessages" Grid.Row="2" Style="{StaticResource DarkDataGrid}"
+                                                  SelectionChanged="DgMessages_SelectionChanged">
+                                            <DataGrid.Columns>
+                                                <DataGridTextColumn Header="P" Binding="{Binding Partition}" Width="40"/>
+                                                <DataGridTextColumn Header="Offset" Binding="{Binding Offset}" Width="78"/>
+                                                <DataGridTextColumn Header="Timestamp" Binding="{Binding TimestampText}" Width="168"/>
+                                                <DataGridTextColumn Header="Key" Binding="{Binding KeyText}" Width="130"/>
+                                                <DataGridTextColumn Header="Value (미리보기)" Binding="{Binding ValuePreview}" Width="*"/>
+                                                <DataGridTextColumn Header="Size" Binding="{Binding SizeBytes, StringFormat={}{0} B}" Width="66"/>
+                                                <DataGridTextColumn Header="Hdr" Binding="{Binding HeaderCount}" Width="42"/>
+                                            </DataGrid.Columns>
+                                        </DataGrid>
+
+                                        <GridSplitter Grid.Row="3" Height="6" HorizontalAlignment="Stretch" Background="Transparent" Cursor="SizeNS"/>
+
+                                        <!-- 하단 메시지 상세 뷰어 (JSON Pretty / Raw / Hex / Headers) -->
+                                        <Border Grid.Row="4" Background="#10141E" BorderBrush="#222B3F" BorderThickness="1" CornerRadius="8" Padding="8">
+                                            <DockPanel LastChildFill="True">
+                                                <DockPanel DockPanel.Dock="Top" Margin="0,0,0,6" LastChildFill="False">
+                                                    <TextBlock x:Name="TxtSelectedMsgMeta" DockPanel.Dock="Left" VerticalAlignment="Center"
+                                                               FontSize="11.5" Foreground="#8DB5F8" FontFamily="Consolas"
+                                                               Text="메시지를 선택하면 상세 내용(JSON Pretty / Raw / Hex / Headers)이 표시됩니다."/>
+                                                    <StackPanel Orientation="Horizontal" DockPanel.Dock="Right" VerticalAlignment="Center">
+                                                        <RadioButton x:Name="RbViewJson" Content="JSON" GroupName="ExpViewMode" Style="{StaticResource PillRadio}" IsChecked="True" Checked="ExplorerViewMode_Changed"/>
+                                                        <RadioButton x:Name="RbViewRaw" Content="Raw" GroupName="ExpViewMode" Style="{StaticResource PillRadio}" Checked="ExplorerViewMode_Changed"/>
+                                                        <RadioButton x:Name="RbViewHex" Content="Hex" GroupName="ExpViewMode" Style="{StaticResource PillRadio}" Checked="ExplorerViewMode_Changed"/>
+                                                        <RadioButton x:Name="RbViewHeaders" Content="Headers" GroupName="ExpViewMode" Style="{StaticResource PillRadio}" Checked="ExplorerViewMode_Changed"/>
+                                                        <Button x:Name="BtnCopyValue" Style="{StaticResource BaseButton}" Padding="8,3" Margin="4,0,0,0" Click="BtnCopyValue_Click">
+                                                            <TextBlock Text="복사" FontSize="11.5"/>
+                                                        </Button>
+                                                    </StackPanel>
+                                                </DockPanel>
+
+                                                <DockPanel DockPanel.Dock="Top" Margin="0,0,0,6">
+                                                    <TextBlock Text="Key" DockPanel.Dock="Left" Foreground="{StaticResource Subtle}" FontSize="11.5" VerticalAlignment="Center" Width="36"/>
+                                                    <TextBox x:Name="TxtDetailKey" IsReadOnly="True" Style="{StaticResource DarkTextBox}" Height="24" FontFamily="Consolas" FontSize="11.5"/>
+                                                </DockPanel>
+
+                                                <TextBox x:Name="TxtDetailValue"
+                                                         IsReadOnly="True"
+                                                         TextWrapping="Wrap"
+                                                         AcceptsReturn="True"
+                                                         FontFamily="Consolas"
+                                                         FontSize="12"
+                                                         Padding="8"
+                                                         Background="#0B0D12"
+                                                         Foreground="{StaticResource Text}"
+                                                         BorderBrush="#1F2636"
+                                                         BorderThickness="1"
+                                                         VerticalScrollBarVisibility="Auto"/>
+                                            </DockPanel>
+                                        </Border>
+                                    </Grid>
+                                </TabItem>
+
+                                <!-- ===== 서브탭 2: 실시간 스트림 (Confluent.Kafka Native Live Consumer) ===== -->
+                                <TabItem Header="실시간 스트림">
+                                    <Grid>
+                                        <Grid.RowDefinitions>
+                                            <RowDefinition Height="Auto"/>
+                                            <RowDefinition Height="*" MinHeight="140"/>
+                                            <RowDefinition Height="6"/>
+                                            <RowDefinition Height="190" MinHeight="110"/>
+                                        </Grid.RowDefinitions>
+
+                                        <DockPanel Grid.Row="0" Margin="0,0,0,8" LastChildFill="False">
+                                            <StackPanel Orientation="Horizontal" DockPanel.Dock="Left" VerticalAlignment="Center">
+                                                <ToggleButton x:Name="BtnToggleConsumer"
+                                                              Style="{StaticResource StartToggleZk}"
+                                                              Content="구독 시작"
+                                                              Tag="구독 중지"
+                                                              MinWidth="112" Height="30"
+                                                              Margin="0,0,10,0"
+                                                              Click="BtnToggleConsumer_Click"/>
+                                                <CheckBox x:Name="ChkFromBeginning" Content="처음부터" Margin="0,0,10,0"/>
+                                                <CheckBox x:Name="ChkConsumerAutoScroll" Content="자동 스크롤" IsChecked="True"/>
+                                            </StackPanel>
+
+                                            <StackPanel Orientation="Horizontal" DockPanel.Dock="Right" VerticalAlignment="Center">
+                                                <TextBlock x:Name="TxtConsumerStatus" Text="대기" FontSize="12" Foreground="{StaticResource Subtle}" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                                <TextBlock x:Name="TxtConsumerCount" Text="(0 msgs)" FontSize="12" Foreground="{StaticResource Subtle}" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                                <Button x:Name="BtnClearConsumerLog" Style="{StaticResource BaseButton}" Padding="8,4" Click="BtnClearConsumerLog_Click">
+                                                    <TextBlock Text="지우기" FontSize="12"/>
+                                                </Button>
+                                            </StackPanel>
+                                        </DockPanel>
+
+                                        <DataGrid x:Name="DgLiveMessages" Grid.Row="1" Style="{StaticResource DarkDataGrid}"
+                                                  SelectionChanged="DgLiveMessages_SelectionChanged">
+                                            <DataGrid.Columns>
+                                                <DataGridTextColumn Header="P" Binding="{Binding Partition}" Width="40"/>
+                                                <DataGridTextColumn Header="Offset" Binding="{Binding Offset}" Width="78"/>
+                                                <DataGridTextColumn Header="Timestamp" Binding="{Binding TimestampText}" Width="168"/>
+                                                <DataGridTextColumn Header="Key" Binding="{Binding KeyText}" Width="130"/>
+                                                <DataGridTextColumn Header="Value (미리보기)" Binding="{Binding ValuePreview}" Width="*"/>
+                                                <DataGridTextColumn Header="Size" Binding="{Binding SizeBytes, StringFormat={}{0} B}" Width="66"/>
+                                            </DataGrid.Columns>
+                                        </DataGrid>
+
+                                        <GridSplitter Grid.Row="2" Height="6" HorizontalAlignment="Stretch" Background="Transparent" Cursor="SizeNS"/>
+
+                                        <Border Grid.Row="3" Background="#10141E" BorderBrush="#222B3F" BorderThickness="1" CornerRadius="8" Padding="8">
+                                            <DockPanel LastChildFill="True">
+                                                <DockPanel DockPanel.Dock="Top" Margin="0,0,0,6" LastChildFill="False">
+                                                    <TextBlock x:Name="TxtLiveSelectedMeta" DockPanel.Dock="Left" VerticalAlignment="Center"
+                                                               FontSize="11.5" Foreground="#8DB5F8" FontFamily="Consolas"
+                                                               Text="실시간 수신 행을 클릭하면 JSON Pretty / Raw / Hex 상세 내용을 볼 수 있습니다."/>
+                                                    <StackPanel Orientation="Horizontal" DockPanel.Dock="Right">
+                                                        <RadioButton x:Name="RbLiveJson" Content="JSON" GroupName="LiveViewMode" Style="{StaticResource PillRadio}" IsChecked="True" Checked="LiveViewMode_Changed"/>
+                                                        <RadioButton x:Name="RbLiveRaw" Content="Raw" GroupName="LiveViewMode" Style="{StaticResource PillRadio}" Checked="LiveViewMode_Changed"/>
+                                                        <RadioButton x:Name="RbLiveHex" Content="Hex" GroupName="LiveViewMode" Style="{StaticResource PillRadio}" Checked="LiveViewMode_Changed"/>
+                                                        <Button Style="{StaticResource BaseButton}" Padding="8,3" Margin="4,0,0,0" Click="BtnCopyLiveValue_Click">
+                                                            <TextBlock Text="복사" FontSize="11.5"/>
+                                                        </Button>
+                                                    </StackPanel>
+                                                </DockPanel>
+                                                <TextBox x:Name="TxtLiveDetailValue"
+                                                         IsReadOnly="True"
+                                                         TextWrapping="Wrap"
+                                                         AcceptsReturn="True"
+                                                         FontFamily="Consolas"
+                                                         FontSize="12"
+                                                         Padding="8"
+                                                         Background="#0B0D12"
+                                                         Foreground="{StaticResource Text}"
+                                                         BorderBrush="#1F2636"
+                                                         BorderThickness="1"
+                                                         VerticalScrollBarVisibility="Auto"/>
+                                            </DockPanel>
+                                        </Border>
+                                    </Grid>
+                                </TabItem>
+
+                                <!-- ===== 서브탭 3: 파티션 정보 & 메시지 발행 ===== -->
+                                <TabItem Header="파티션 &amp; 메시지 발행">
+                                    <Grid>
+                                        <Grid.RowDefinitions>
+                                            <RowDefinition Height="*" MinHeight="140"/>
+                                            <RowDefinition Height="10"/>
+                                            <RowDefinition Height="Auto"/>
+                                        </Grid.RowDefinitions>
+
+                                        <!-- 상단: 파티션 & 오프셋 정보 테이블 -->
+                                        <DockPanel Grid.Row="0" LastChildFill="True">
+                                            <DockPanel DockPanel.Dock="Top" Margin="0,0,0,6">
+                                                <TextBlock Style="{StaticResource H2}" Text="파티션 &amp; 워터마크 오프셋 (행을 더블클릭하면 해당 파티션 메시지 탐색)" DockPanel.Dock="Left" VerticalAlignment="Center"/>
+                                                <Button x:Name="BtnRefreshPartitions" DockPanel.Dock="Right" Style="{StaticResource BaseButton}" Padding="10,4" Click="BtnRefreshPartitions_Click">
+                                                    <TextBlock Text="새로고침" FontSize="12"/>
+                                                </Button>
+                                            </DockPanel>
+
+                                            <DataGrid x:Name="DgPartitions" Style="{StaticResource DarkDataGrid}" MouseDoubleClick="DgPartitions_MouseDoubleClick">
+                                                <DataGrid.Columns>
+                                                    <DataGridTextColumn Header="Partition" Binding="{Binding PartitionId}" Width="76"/>
+                                                    <DataGridTextColumn Header="Leader" Binding="{Binding Leader}" Width="70"/>
+                                                    <DataGridTextColumn Header="Replicas" Binding="{Binding Replicas}" Width="96"/>
+                                                    <DataGridTextColumn Header="ISR" Binding="{Binding InSyncReplicas}" Width="96"/>
+                                                    <DataGridTextColumn Header="Earliest Offset" Binding="{Binding EarliestOffset}" Width="116"/>
+                                                    <DataGridTextColumn Header="Latest Offset" Binding="{Binding LatestOffset}" Width="116"/>
+                                                    <DataGridTextColumn Header="Messages" Binding="{Binding MessageCount}" Width="*"/>
+                                                </DataGrid.Columns>
+                                            </DataGrid>
+                                        </DockPanel>
+
+                                        <!-- 하단: 메시지 발행 (Producer) -->
+                                        <Border Grid.Row="2" Background="#10141E" BorderBrush="#222B3F" BorderThickness="1" CornerRadius="8" Padding="10">
+                                            <Grid>
+                                                <Grid.RowDefinitions>
+                                                    <RowDefinition Height="Auto"/>
+                                                    <RowDefinition Height="Auto"/>
+                                                    <RowDefinition Height="Auto"/>
+                                                    <RowDefinition Height="Auto"/>
+                                                </Grid.RowDefinitions>
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="Auto"/>
+                                                    <ColumnDefinition Width="120"/>
+                                                    <ColumnDefinition Width="Auto"/>
+                                                    <ColumnDefinition Width="*"/>
+                                                </Grid.ColumnDefinitions>
+
+                                                <DockPanel Grid.Row="0" Grid.ColumnSpan="4" Margin="0,0,0,8">
+                                                    <TextBlock Style="{StaticResource H2}" Text="테스트 메시지 발행 (선택한 토픽)" DockPanel.Dock="Left" VerticalAlignment="Center"/>
+                                                    <TextBlock x:Name="TxtProduceStatus" DockPanel.Dock="Right" FontSize="11.5" Foreground="{StaticResource Accent2}" VerticalAlignment="Center"/>
+                                                </DockPanel>
+
+                                                <TextBlock Grid.Row="1" Grid.Column="0" Text="Partition" Foreground="{StaticResource Subtle}" VerticalAlignment="Center" Margin="0,0,8,8"/>
+                                                <ComboBox x:Name="CboProducePartition" Grid.Row="1" Grid.Column="1" Style="{StaticResource DarkComboBox}" Margin="0,0,12,8"/>
+
+                                                <TextBlock Grid.Row="1" Grid.Column="2" Text="Key (선택)" Foreground="{StaticResource Subtle}" VerticalAlignment="Center" Margin="0,0,8,8"/>
+                                                <TextBox x:Name="TxtProduceKey" Grid.Row="1" Grid.Column="3" Style="{StaticResource DarkTextBox}" Height="28" Margin="0,0,0,8"/>
+
+                                                <TextBlock Grid.Row="2" Grid.Column="0" Text="Headers" Foreground="{StaticResource Subtle}" VerticalAlignment="Top" Margin="0,6,8,8"/>
+                                                <TextBox x:Name="TxtProduceHeaders" Grid.Row="2" Grid.Column="1" Grid.ColumnSpan="3"
+                                                         Style="{StaticResource DarkTextBox}" Height="46" AcceptsReturn="True" VerticalContentAlignment="Top"
+                                                         FontFamily="Consolas" FontSize="11.5" Margin="0,0,0,8"
+                                                         ToolTip="한 줄에 하나씩 key=value 형식으로 입력 (선택 사항)"/>
+
+                                                <TextBlock Grid.Row="3" Grid.Column="0" Text="Value" Foreground="{StaticResource Subtle}" VerticalAlignment="Top" Margin="0,6,8,0"/>
+                                                <Grid Grid.Row="3" Grid.Column="1" Grid.ColumnSpan="3">
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="*"/>
+                                                        <ColumnDefinition Width="Auto"/>
+                                                    </Grid.ColumnDefinitions>
+                                                    <TextBox x:Name="TxtProduceMessage" Grid.Column="0"
+                                                             Style="{StaticResource DarkTextBox}" Height="82" AcceptsReturn="True" TextWrapping="Wrap"
+                                                             VerticalContentAlignment="Top" VerticalScrollBarVisibility="Auto"
+                                                             FontFamily="Consolas" FontSize="12" Margin="0,0,8,0"/>
+                                                    <StackPanel Grid.Column="1" VerticalAlignment="Bottom">
+                                                        <Button Style="{StaticResource BaseButton}" Height="30" Margin="0,0,0,6" Click="BtnFormatProduceJson_Click">
+                                                            <TextBlock Text="JSON 정렬" FontSize="11.5"/>
+                                                        </Button>
+                                                        <Button x:Name="BtnProduceMessage" Style="{StaticResource AccentButton}" Height="44" MinWidth="96" Click="BtnProduceMessage_Click">
+                                                            <StackPanel Orientation="Horizontal">
+                                                                <TextBlock Style="{StaticResource Glyph}" Text="&#xE724;"/>
+                                                                <TextBlock Text="발행" VerticalAlignment="Center"/>
+                                                            </StackPanel>
+                                                        </Button>
+                                                    </StackPanel>
+                                                </Grid>
+                                            </Grid>
+                                        </Border>
+                                    </Grid>
+                                </TabItem>
+
+                                <!-- ===== 서브탭 4: Consumer Groups & Lag ===== -->
+                                <TabItem Header="Consumer Groups (Lag)">
+                                    <Grid>
+                                        <Grid.RowDefinitions>
+                                            <RowDefinition Height="Auto"/>
+                                            <RowDefinition Height="*"/>
+                                        </Grid.RowDefinitions>
+
+                                        <DockPanel Grid.Row="0" Margin="0,0,0,8" LastChildFill="False">
+                                            <StackPanel Orientation="Horizontal" DockPanel.Dock="Left" VerticalAlignment="Center">
+                                                <TextBlock Text="Consumer Group" Foreground="{StaticResource Subtle}" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                                <ComboBox x:Name="CboConsumerGroups" Style="{StaticResource DarkComboBox}" Width="260" Margin="0,0,8,0"
+                                                          DisplayMemberPath="Display" SelectionChanged="CboConsumerGroups_SelectionChanged"/>
+                                                <Button x:Name="BtnRefreshGroups" Style="{StaticResource AccentButton}" Height="28" Padding="12,3" Click="BtnRefreshGroups_Click">
+                                                    <StackPanel Orientation="Horizontal">
+                                                        <TextBlock Style="{StaticResource Glyph}" Text="&#xE72C;" FontSize="12"/>
+                                                        <TextBlock Text="그룹 조회" FontSize="12" VerticalAlignment="Center"/>
+                                                    </StackPanel>
+                                                </Button>
+                                            </StackPanel>
+                                            <TextBlock x:Name="TxtGroupStatus" DockPanel.Dock="Right" VerticalAlignment="Center"
+                                                       FontSize="12" Foreground="{StaticResource Subtle}" Text="그룹 목록을 조회하세요."/>
+                                        </DockPanel>
+
+                                        <DataGrid x:Name="DgConsumerGroupOffsets" Grid.Row="1" Style="{StaticResource DarkDataGrid}">
+                                            <DataGrid.Columns>
+                                                <DataGridTextColumn Header="Topic" Binding="{Binding Topic}" Width="*"/>
+                                                <DataGridTextColumn Header="Partition" Binding="{Binding Partition}" Width="80"/>
+                                                <DataGridTextColumn Header="Current Offset" Binding="{Binding CurrentOffset}" Width="124"/>
+                                                <DataGridTextColumn Header="Log-End Offset" Binding="{Binding LogEndOffset}" Width="124"/>
+                                                <DataGridTextColumn Header="Lag" Binding="{Binding Lag}" Width="96">
+                                                    <DataGridTextColumn.ElementStyle>
+                                                        <Style TargetType="TextBlock">
+                                                            <Setter Property="FontWeight" Value="Bold"/>
+                                                            <Setter Property="Foreground" Value="#34C38F"/>
+                                                            <Style.Triggers>
+                                                                <DataTrigger Binding="{Binding HasLag}" Value="True">
+                                                                    <Setter Property="Foreground" Value="#F5A623"/>
+                                                                </DataTrigger>
+                                                            </Style.Triggers>
+                                                        </Style>
+                                                    </DataGridTextColumn.ElementStyle>
+                                                </DataGridTextColumn>
+                                            </DataGrid.Columns>
+                                        </DataGrid>
+                                    </Grid>
+                                </TabItem>
+                            </TabControl>
+                        </Border>
+                    </Grid>
+                </Grid>
+            </TabItem>
+        </TabControl>
+    </Grid>
+</Window>

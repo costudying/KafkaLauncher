@@ -1,0 +1,23 @@
+# Visual Studio / .NET / WPF
+.vs/
+bin/
+obj/
+packages/
+TestResults/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+*.cache
+*.log
+
+# Fody auto-generated schema
+FodyWeavers.xsd
+
+# Build artifacts & temporary files
+*.nupkg
+*.snupkg
+*.tmp
+Thumbs.db
+Desktop.ini
+.DS_Store

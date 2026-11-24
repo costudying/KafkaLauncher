@@ -1,0 +1,17 @@
+{
+  "xaml-syntax-guard": {
+    "enabled": false,
+    "PostToolUse": [
+      {
+        "matcher": "edit_file|write_file",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/check-xaml.ps1",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}
