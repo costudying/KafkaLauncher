@@ -17,16 +17,21 @@ This repository is a C# / WPF (.NET Framework 4.7.2) Windows desktop application
 3. **Process Lifecycle & Safety (`KafkaProcessManager.cs`)**
    - Always terminate `.bat` server processes via `KillProcessTree` (`taskkill /PID <pid> /T /F`) so child `java.exe` JVM processes are never orphaned.
    - Always propagate `CustomJavaHome` (`JAVA_HOME` + `%JAVA_HOME%\bin` prepended to `PATH`) for both hidden execution and `cmd.exe /k` new-window execution, as well as `kafka-storage.bat` KRaft formatting.
+   - Auto-detect Kafka 4.x dynamic quorum (`controller.quorum.bootstrap.servers` without `controller.quorum.voters`) and pass `--standalone` to `kafka-storage.bat format`.
+   - Keep `CleanDataDirectoriesAsync` guarded by `IsSafeDataDirectory` (never allow deleting drive roots or OS/system folders) and block cleanup while Zookeeper or Kafka is running.
    - Keep `ToggleButton` state transitions driven by `Click` handlers + actual manager state (`IsZookeeperRunning` / `IsKafkaRunning`) — never attach side-effectful `Checked`/`Unchecked` handlers that can cascade on programmatic `IsChecked` updates.
 
-4. **Native Kafka Explorer (`KafkaExplorerService.cs`)**
+4. **Native Kafka Explorer & Dashboard (`KafkaExplorerService.cs`)**
    - Use `Confluent.Kafka` (`AdminClient`, `Consumer`, `Producer`) directly — avoid shelling out to Kafka `.bat` tools for topic/message exploration so the Offset Explorer tab remains fast and usable on machines without Java.
    - For `KafkaLiveConsumer`, use manual partition `Assign` instead of `Subscribe` to avoid consumer-group rebalance delays.
-   - Guard all background UI updates with `SafeUiInvoke` (`Dispatcher.BeginInvoke` + shutdown/closing checks) and cap in-memory log/message buffers.
+   - Never block `RefreshClusterAsync` button re-enabling on full dashboard watermark scans; for large remote clusters (>40 partitions), load Broker/Topic/Partition metadata immediately and make full message counting opt-in (parallelized) to avoid VPN latency stalls.
+   - Keep `ExtractFieldAuto` and `FormatPretty` supporting both JSON and XML (including namespace-agnostic XPath / dot paths) and qualify `Newtonsoft.Json.Formatting` explicitly when `System.Xml` is imported.
+   - Batch high-frequency log and live-stream UI updates via `DispatcherTimer` (`DispatcherPriority.Background`, 100ms), guard background UI updates with `SafeUiInvoke`, and cap in-memory log/message buffers.
 
 5. **XAML & Styling (`MainWindow.xaml`)**
    - Never include `--` inside XML comments (`<!-- ... -->`) in XAML files (causes `MC3000` build errors).
-   - Maintain the dark theme palette (`#0F1115`, `#151922`, `#4F8EF7`, `#34C38F`) and avoid nested `ScrollViewer` around `TextBox` / `DataGrid`.
+   - Always set `LastChildFill="False"` on header `DockPanel`s that align left and right children.
+   - Maintain the dark theme palette (`#0F1115`, `#151922`, `#4F8EF7`, `#34C38F`), keep `TxtLog` `TextWrapping="NoWrap"`, and avoid nested `ScrollViewer` around `TextBox` / `DataGrid`.
 
 6. **Privacy & GitHub Hygiene**
    - Do not commit `bin/`, `obj/`, `.vs/`, or machine-specific secrets/credentials.

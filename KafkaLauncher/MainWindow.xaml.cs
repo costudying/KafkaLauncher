@@ -10,6 +10,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Threading;
 using Microsoft.Win32;
 using WinForms = System.Windows.Forms;
 
@@ -21,22 +22,31 @@ namespace KafkaLauncher
     public partial class MainWindow : Window
     {
         private const int MaxLogLines = 2000;
+        private const int LogTrimThreshold = 2400;
         private const int MaxLiveMessages = 1000;
 
         private readonly KafkaProcessManager _manager = new KafkaProcessManager();
         private readonly KafkaExplorerService _explorer = new KafkaExplorerService();
         private readonly KafkaLiveConsumer _liveConsumer = new KafkaLiveConsumer();
 
-        private readonly Queue<string> _logBuffer = new Queue<string>(MaxLogLines + 10);
+        private readonly Queue<string> _logBuffer = new Queue<string>(LogTrimThreshold + 16);
+        private readonly List<string> _pendingLogLines = new List<string>(256);
         private readonly object _logLock = new object();
+        private bool _logNeedsFullRefresh = false;
 
+        private readonly Queue<KafkaMessageRecord> _pendingLiveMessages = new Queue<KafkaMessageRecord>(256);
+        private readonly object _liveLock = new object();
         private readonly ObservableCollection<KafkaMessageRecord> _liveMessages = new ObservableCollection<KafkaMessageRecord>();
+        private readonly DispatcherTimer _uiFlushTimer;
+        private readonly DispatcherTimer _dashboardTimer;
+        private bool _isRefreshingDashboard = false;
 
         private LauncherSettings _settings;
         private List<KafkaTopicSummary> _allTopics = new List<KafkaTopicSummary>();
         private List<KafkaMessageRecord> _fetchedMessages = new List<KafkaMessageRecord>();
         private List<KafkaPartitionInfo> _currentPartitions = new List<KafkaPartitionInfo>();
         private int _liveMessageTotalCount = 0;
+        private string _currentJsonExtractPath = string.Empty;
         private bool _isInitializing = true;
         private bool _isClosing = false;
 
@@ -55,6 +65,7 @@ namespace KafkaLauncher
             _isInitializing = false;
 
             ApplyRunModeUi(GetSelectedRunMode());
+            ApplyJsonExtractPath(_settings.JsonExtractPath, refreshExisting: false);
             UpdateProcessStateUi(zkRunning: false, kafkaRunning: false);
             ResetPartitionDropdowns(0);
 
@@ -66,9 +77,31 @@ namespace KafkaLauncher
             _manager.ZookeeperStateChanged += (s, running) => SafeUiInvoke(() => UpdateZookeeperUi(running));
             _manager.KafkaStateChanged += (s, running) => SafeUiInvoke(() => UpdateKafkaUi(running));
 
-            _liveConsumer.MessageReceived += (s, record) => SafeUiInvoke(() => OnLiveMessageReceived(record));
+            _liveConsumer.MessageReceived += (s, record) => EnqueueLiveMessage(record);
             _liveConsumer.ErrorReceived += (s, err) => AppendLog("[LiveConsumer] " + err);
             _liveConsumer.StateChanged += (s, running) => SafeUiInvoke(() => UpdateConsumerUi(running));
+
+            // 대량 로그/메시지 폭주 시 UI 스레드 멈춤(프리징)을 막기 위한 100ms 배치 플러시 타이머
+            _uiFlushTimer = new DispatcherTimer(DispatcherPriority.Background, Dispatcher)
+            {
+                Interval = TimeSpan.FromMilliseconds(100)
+            };
+            _uiFlushTimer.Tick += UiFlushTimer_Tick;
+            _uiFlushTimer.Start();
+
+            // Kafka UI 스타일 클러스터 대시보드 5초 자동 갱신 타이머
+            _dashboardTimer = new DispatcherTimer(DispatcherPriority.Background, Dispatcher)
+            {
+                Interval = TimeSpan.FromSeconds(5)
+            };
+            _dashboardTimer.Tick += async (s, e) =>
+            {
+                if (_isClosing || _isRefreshingDashboard) return;
+                if (MainTabs.SelectedIndex == 1 && ExplorerTabs.SelectedIndex == 0 && ChkDashboardAutoRefresh.IsChecked == true)
+                {
+                    await RefreshDashboardAsync(showErrorDialog: false);
+                }
+            };
 
             Loaded += async (s, e) => await CheckJavaEnvironmentAsync(logResult: true);
         }
@@ -89,6 +122,7 @@ namespace KafkaLauncher
             ChkNewWindow.IsChecked = s.OpenInNewWindow;
             ChkAutoScroll.IsChecked = s.AutoScrollLog;
             TxtBootstrapServer.Text = s.BootstrapServer ?? "localhost:9092";
+            TxtJsonExtractPath.Text = s.JsonExtractPath ?? string.Empty;
 
             if (s.RunMode == KafkaRunMode.KRaft)
                 RbModeKRaft.IsChecked = true;
@@ -110,6 +144,7 @@ namespace KafkaLauncher
             _settings.OpenInNewWindow = ChkNewWindow.IsChecked == true;
             _settings.AutoScrollLog = ChkAutoScroll.IsChecked == true;
             _settings.BootstrapServer = TxtBootstrapServer.Text?.Trim() ?? "localhost:9092";
+            _settings.JsonExtractPath = TxtJsonExtractPath.Text?.Trim() ?? string.Empty;
         }
 
         private KafkaRunMode GetSelectedRunMode()
@@ -471,6 +506,77 @@ namespace KafkaLauncher
             }
         }
 
+        private async void BtnCleanData_Click(object sender, RoutedEventArgs e)
+        {
+            if (_manager.IsZookeeperRunning || _manager.IsKafkaRunning)
+            {
+                MessageBox.Show(
+                    "실행 중인 Zookeeper 또는 Kafka 프로세스가 있습니다.\n먼저 '모두 종료'를 눌러 프로세스를 종료한 뒤 데이터 초기화를 진행해 주세요.",
+                    "프로세스 실행 중",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Warning);
+                return;
+            }
+
+            KafkaRunMode mode = GetSelectedRunMode();
+            var targets = new List<string>();
+
+            if (mode == KafkaRunMode.KRaft)
+            {
+                targets.AddRange(KafkaProcessManager.ParsePropertyDirectories(TxtKRaftConfig.Text.Trim(), "log.dirs"));
+            }
+            else
+            {
+                targets.AddRange(KafkaProcessManager.ParsePropertyDirectories(TxtKafkaConfig.Text.Trim(), "log.dirs"));
+                targets.AddRange(KafkaProcessManager.ParsePropertyDirectories(TxtZkConfig.Text.Trim(), "dataDir"));
+            }
+
+            targets = targets.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+            if (targets.Count == 0)
+            {
+                MessageBox.Show(
+                    "현재 설정 파일(.properties)에서 log.dirs 또는 dataDir 경로를 찾지 못했습니다.",
+                    "초기화 대상 없음",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Information);
+                return;
+            }
+
+            string listText = string.Join("\n", targets.Select(d => " • " + d));
+            string extraNote = mode == KafkaRunMode.KRaft
+                ? "\n\n※ KRaft 모드에서는 초기화 후 'KRaft 스토리지 포맷'을 다시 1회 실행해야 합니다."
+                : string.Empty;
+
+            var confirm = MessageBox.Show(
+                $"아래 로컬 데이터 디렉토리의 모든 토픽·메시지·스냅샷 파일을 삭제합니다.\n계속하시겠습니까?\n\n{listText}{extraNote}",
+                "로컬 데이터 초기화 확인",
+                MessageBoxButton.YesNo,
+                MessageBoxImage.Warning);
+
+            if (confirm != MessageBoxResult.Yes) return;
+
+            BtnCleanData.IsEnabled = false;
+            try
+            {
+                string result = await KafkaProcessManager.CleanDataDirectoriesAsync(targets);
+                AppendLog("[Clean Reset]\n" + result);
+                if (mode == KafkaRunMode.KRaft)
+                {
+                    TxtClusterId.Clear();
+                }
+                MessageBox.Show(result, "데이터 초기화 결과", MessageBoxButton.OK, MessageBoxImage.Information);
+            }
+            catch (Exception ex)
+            {
+                AppendLog("[Clean Reset Error] " + ex.Message);
+                MessageBox.Show(ex.Message, "데이터 초기화 오류", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+            finally
+            {
+                BtnCleanData.IsEnabled = true;
+            }
+        }
+
         private void UpdateProcessStateUi(bool zkRunning, bool kafkaRunning)
         {
             UpdateZookeeperUi(zkRunning);
@@ -494,51 +600,76 @@ namespace KafkaLauncher
         }
 
         // ======================================
-        // 런처 실행 로그
+        // 런처 실행 로그 (100ms 배치 플러시로 UI 프리징 방지)
         // ======================================
         private void AppendLog(string line)
         {
             if (_isClosing) return;
 
             string stamped = $"[{DateTime.Now:HH:mm:ss}] {line}";
-            int count;
-            bool trimmed = false;
-
             lock (_logLock)
             {
                 _logBuffer.Enqueue(stamped);
-                while (_logBuffer.Count > MaxLogLines)
+                if (_logBuffer.Count > LogTrimThreshold)
                 {
-                    _logBuffer.Dequeue();
-                    trimmed = true;
+                    while (_logBuffer.Count > MaxLogLines)
+                        _logBuffer.Dequeue();
+                    _pendingLogLines.Clear();
+                    _logNeedsFullRefresh = true;
                 }
-                count = _logBuffer.Count;
+                else if (!_logNeedsFullRefresh)
+                {
+                    _pendingLogLines.Add(stamped);
+                }
+            }
+        }
+
+        private void UiFlushTimer_Tick(object sender, EventArgs e)
+        {
+            if (_isClosing) return;
+            FlushPendingLogs();
+            FlushPendingLiveMessages();
+        }
+
+        private void FlushPendingLogs()
+        {
+            string batchText = null;
+            bool fullRefresh = false;
+            int count = 0;
+
+            lock (_logLock)
+            {
+                if (_logNeedsFullRefresh)
+                {
+                    fullRefresh = true;
+                    _logNeedsFullRefresh = false;
+                    _pendingLogLines.Clear();
+                    batchText = _logBuffer.Count > 0
+                        ? string.Join(Environment.NewLine, _logBuffer) + Environment.NewLine
+                        : string.Empty;
+                    count = _logBuffer.Count;
+                }
+                else if (_pendingLogLines.Count > 0)
+                {
+                    batchText = string.Join(Environment.NewLine, _pendingLogLines) + Environment.NewLine;
+                    _pendingLogLines.Clear();
+                    count = _logBuffer.Count;
+                }
             }
 
-            SafeUiInvoke(() =>
+            if (batchText == null) return;
+
+            if (fullRefresh)
+                TxtLog.Text = batchText;
+            else
+                TxtLog.AppendText(batchText);
+
+            TxtLogCount.Text = $"({count} lines)";
+
+            if (ChkAutoScroll.IsChecked == true)
             {
-                if (trimmed)
-                {
-                    string snapshot;
-                    lock (_logLock)
-                    {
-                        snapshot = string.Join(Environment.NewLine, _logBuffer) + Environment.NewLine;
-                    }
-                    TxtLog.Text = snapshot;
-                }
-                else
-                {
-                    TxtLog.AppendText(stamped + Environment.NewLine);
-                }
-
-                TxtLogCount.Text = $"({count} lines)";
-
-                if (ChkAutoScroll.IsChecked == true)
-                {
-                    TxtLog.CaretIndex = TxtLog.Text.Length;
-                    TxtLog.ScrollToEnd();
-                }
-            });
+                TxtLog.ScrollToEnd();
+            }
         }
 
         private void BtnClearLog_Click(object sender, RoutedEventArgs e)
@@ -546,6 +677,8 @@ namespace KafkaLauncher
             lock (_logLock)
             {
                 _logBuffer.Clear();
+                _pendingLogLines.Clear();
+                _logNeedsFullRefresh = false;
             }
             TxtLog.Clear();
             TxtLogCount.Text = "(0 lines)";
@@ -599,12 +732,74 @@ namespace KafkaLauncher
             {
                 SetExplorerButtonsEnabled(true);
             }
+
+            // 클러스터 상태 탭을 보고 있는 경우에만 버튼 잠금 해제 후 비동기로 대시보드 갱신
+            if (_allTopics.Count > 0 && ExplorerTabs.SelectedIndex == 0)
+            {
+                await RefreshDashboardAsync(showErrorDialog: false);
+            }
         }
 
         private void ChkHideInternalTopics_Changed(object sender, RoutedEventArgs e)
         {
             if (_isInitializing) return;
             ApplyTopicFilter(SelectedTopic?.Name);
+        }
+
+        private void BtnApplyJsonPath_Click(object sender, RoutedEventArgs e)
+        {
+            ApplyJsonExtractPath(TxtJsonExtractPath.Text, refreshExisting: true);
+            CaptureSettingsFromUi();
+            _settings.Save();
+        }
+
+        private void TxtJsonExtractPath_KeyDown(object sender, KeyEventArgs e)
+        {
+            if (e.Key == Key.Enter)
+            {
+                ApplyJsonExtractPath(TxtJsonExtractPath.Text, refreshExisting: true);
+                CaptureSettingsFromUi();
+                _settings.Save();
+            }
+        }
+
+        private void ApplyJsonExtractPath(string rawPath, bool refreshExisting)
+        {
+            _currentJsonExtractPath = rawPath?.Trim() ?? string.Empty;
+            bool hasCustomPath = !string.IsNullOrEmpty(_currentJsonExtractPath);
+            string header = hasCustomPath ? $"Key ({_currentJsonExtractPath})" : "Key";
+
+            ColMsgKey.Header = header;
+            ColLiveKey.Header = header;
+
+            if (!refreshExisting) return;
+
+            foreach (var m in _fetchedMessages)
+            {
+                UpdateRecordDisplayKey(m);
+            }
+            DgMessages.Items.Refresh();
+            RenderMessageDetail(DgMessages.SelectedItem as KafkaMessageRecord);
+
+            foreach (var m in _liveMessages)
+            {
+                UpdateRecordDisplayKey(m);
+            }
+            DgLiveMessages.Items.Refresh();
+            RenderLiveMessageDetail(DgLiveMessages.SelectedItem as KafkaMessageRecord);
+        }
+
+        private void UpdateRecordDisplayKey(KafkaMessageRecord record)
+        {
+            if (record == null) return;
+            if (string.IsNullOrEmpty(_currentJsonExtractPath))
+            {
+                record.DisplayKey = record.KeyText;
+                return;
+            }
+
+            string extracted = KafkaExplorerService.ExtractFieldAuto(record.ValueText, _currentJsonExtractPath);
+            record.DisplayKey = !string.IsNullOrEmpty(extracted) ? extracted : record.KeyText;
         }
 
         private void TxtTopicFilter_TextChanged(object sender, TextChangedEventArgs e)
@@ -738,16 +933,142 @@ namespace KafkaLauncher
         }
 
         // ======================================
+        // 서브탭 0: 클러스터 상태 대시보드 (Kafka UI 스타일)
+        // ======================================
+        private async void BtnRefreshDashboard_Click(object sender, RoutedEventArgs e)
+        {
+            await RefreshDashboardAsync(showErrorDialog: true);
+        }
+
+        private void ChkDashboardAutoRefresh_Changed(object sender, RoutedEventArgs e)
+        {
+            if (_dashboardTimer == null) return;
+            if (ChkDashboardAutoRefresh.IsChecked == true)
+                _dashboardTimer.Start();
+            else
+                _dashboardTimer.Stop();
+        }
+
+        private async void ExplorerTabs_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (_isInitializing || !ReferenceEquals(e.Source, ExplorerTabs)) return;
+            if (ExplorerTabs.SelectedIndex == 0 && _allTopics.Count > 0 && !_isRefreshingDashboard)
+            {
+                await RefreshDashboardAsync(showErrorDialog: false);
+            }
+        }
+
+        private async Task RefreshDashboardAsync(bool showErrorDialog)
+        {
+            if (_isRefreshingDashboard) return;
+            _isRefreshingDashboard = true;
+            BtnRefreshDashboard.IsEnabled = false;
+            try
+            {
+                bool includeInternal = ChkHideInternalTopics?.IsChecked != true;
+                bool forceCounts = ChkDashboardCountMessages?.IsChecked == true;
+                var snap = await _explorer.GetClusterDashboardAsync(TxtBootstrapServer.Text.Trim(), includeInternal, forceCounts);
+
+                TxtKpiBrokers.Text = snap.OnlineBrokers.ToString("N0");
+                TxtKpiBrokersSub.Text = snap.OnlineBrokers > 0 ? "Online" : "Offline";
+
+                TxtKpiTopics.Text = snap.UserTopicCount.ToString("N0");
+                TxtKpiTopicsSub.Text = $"전체 {snap.TotalTopicCount:N0} (내부 포함)";
+
+                TxtKpiPartitions.Text = snap.TotalPartitions.ToString("N0");
+                TxtKpiPartitionsSub.Text = $"URP: {snap.UnderReplicatedPartitions} · Offline: {snap.OfflinePartitions}";
+                TxtKpiPartitionsSub.Foreground = (snap.UnderReplicatedPartitions > 0 || snap.OfflinePartitions > 0)
+                    ? new SolidColorBrush(Color.FromRgb(0xF5, 0xA6, 0x23))
+                    : IdleTextBrush;
+
+                if (snap.MessageCountsLoaded)
+                {
+                    TxtKpiMessages.Text = snap.TotalMessages.ToString("N0");
+                    TxtKpiMessagesSub.Text = "조회 토픽 합계";
+                }
+                else
+                {
+                    TxtKpiMessages.Text = "-";
+                    TxtKpiMessagesSub.Text = $"대규모({snap.TargetPartitionCount}P) · 체크 시 집계";
+                }
+
+                TxtKpiGroups.Text = snap.ConsumerGroupCount.ToString("N0");
+                TxtKpiGroupsSub.Text = $"Stable: {snap.StableGroupCount:N0}";
+
+                DgDashBrokers.ItemsSource = snap.Brokers;
+                DgDashTopics.ItemsSource = snap.Topics;
+
+                if (snap.IsHealthy)
+                {
+                    DotDashHealth.Fill = RunningDotBrush;
+                    TxtDashHealth.Text = "Healthy";
+                    TxtDashHealth.Foreground = RunningDotBrush;
+                }
+                else
+                {
+                    DotDashHealth.Fill = new SolidColorBrush(Color.FromRgb(0xF5, 0xA6, 0x23));
+                    TxtDashHealth.Text = $"Warning (URP:{snap.UnderReplicatedPartitions} / Off:{snap.OfflinePartitions})";
+                    TxtDashHealth.Foreground = new SolidColorBrush(Color.FromRgb(0xF5, 0xA6, 0x23));
+                }
+
+                TxtDashUpdated.Text = $"마지막 갱신: {snap.CapturedAt} ({snap.ElapsedMs}ms)";
+            }
+            catch (Exception ex)
+            {
+                DotDashHealth.Fill = ErrorDotBrush;
+                TxtDashHealth.Text = "연결 오류";
+                TxtDashHealth.Foreground = ErrorDotBrush;
+                TxtDashUpdated.Text = ex.Message;
+                if (showErrorDialog)
+                {
+                    MessageBox.Show(ex.Message, "클러스터 상태 조회 실패", MessageBoxButton.OK, MessageBoxImage.Error);
+                }
+            }
+            finally
+            {
+                _isRefreshingDashboard = false;
+                BtnRefreshDashboard.IsEnabled = true;
+            }
+        }
+
+        private async void DgDashTopics_MouseDoubleClick(object sender, MouseButtonEventArgs e)
+        {
+            if (DgDashTopics.SelectedItem is KafkaTopicHealthRow row)
+            {
+                var match = _allTopics.FirstOrDefault(t => string.Equals(t.Name, row.TopicName, StringComparison.Ordinal));
+                if (match != null)
+                {
+                    LstTopics.SelectedItem = match;
+                }
+                ExplorerTabs.SelectedIndex = 1; // 메시지 탐색 탭
+                await FetchMessagesAsync();
+            }
+        }
+
+        // ======================================
         // 서브탭 1: 메시지 탐색 (Offset Explorer)
         // ======================================
         private void CboFetchMode_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
             if (PnlSpecificOffset == null) return;
-            PnlSpecificOffset.Visibility = CboFetchMode.SelectedIndex == 2 ? Visibility.Visible : Visibility.Collapsed;
+            bool needsOffset = CboFetchMode.SelectedIndex == 2 || CboFetchMode.SelectedIndex == 3;
+            bool isSingle = CboFetchMode.SelectedIndex == 3;
+            PnlSpecificOffset.Visibility = needsOffset ? Visibility.Visible : Visibility.Collapsed;
+            if (PnlMaxMessages != null)
+                PnlMaxMessages.Visibility = isSingle ? Visibility.Collapsed : Visibility.Visible;
+        }
+
+        private async void TxtSpecificOffset_KeyDown(object sender, KeyEventArgs e)
+        {
+            if (e.Key == Key.Enter)
+            {
+                await FetchMessagesAsync();
+            }
         }
 
         private int GetSelectedMaxMessages()
         {
+            if (GetSelectedFetchMode() == MessageFetchMode.SingleOffset) return 1;
             string text = (CboMaxMessages.SelectedItem as ComboBoxItem)?.Content?.ToString() ?? "50";
             return int.TryParse(text, out int n) ? n : 50;
         }
@@ -764,6 +1085,7 @@ namespace KafkaLauncher
             {
                 case 1: return MessageFetchMode.Earliest;
                 case 2: return MessageFetchMode.SpecificOffset;
+                case 3: return MessageFetchMode.SingleOffset;
                 default: return MessageFetchMode.Latest;
             }
         }
@@ -771,7 +1093,8 @@ namespace KafkaLauncher
         private async void BtnOffsetPrev_Click(object sender, RoutedEventArgs e)
         {
             if (!long.TryParse(TxtSpecificOffset.Text.Trim(), out long current)) current = 0;
-            long next = Math.Max(0, current - GetSelectedMaxMessages());
+            int step = GetSelectedFetchMode() == MessageFetchMode.SingleOffset ? 1 : GetSelectedMaxMessages();
+            long next = Math.Max(0, current - step);
             TxtSpecificOffset.Text = next.ToString();
             await FetchMessagesAsync();
         }
@@ -779,7 +1102,8 @@ namespace KafkaLauncher
         private async void BtnOffsetNext_Click(object sender, RoutedEventArgs e)
         {
             if (!long.TryParse(TxtSpecificOffset.Text.Trim(), out long current)) current = 0;
-            long next = current + GetSelectedMaxMessages();
+            int step = GetSelectedFetchMode() == MessageFetchMode.SingleOffset ? 1 : GetSelectedMaxMessages();
+            long next = current + step;
             TxtSpecificOffset.Text = next.ToString();
             await FetchMessagesAsync();
         }
@@ -800,11 +1124,11 @@ namespace KafkaLauncher
 
             MessageFetchMode mode = GetSelectedFetchMode();
             long specificOffset = 0;
-            if (mode == MessageFetchMode.SpecificOffset)
+            if (mode == MessageFetchMode.SpecificOffset || mode == MessageFetchMode.SingleOffset)
             {
                 if (!long.TryParse(TxtSpecificOffset.Text.Trim(), out specificOffset) || specificOffset < 0)
                 {
-                    MessageBox.Show("시작 오프셋은 0 이상의 정수로 입력하세요.", "입력 오류", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    MessageBox.Show("오프셋 번호는 0 이상의 정수로 입력하세요.", "입력 오류", MessageBoxButton.OK, MessageBoxImage.Warning);
                     return;
                 }
             }
@@ -825,6 +1149,10 @@ namespace KafkaLauncher
                     maxMessages);
 
                 _fetchedMessages = res.Messages;
+                foreach (var m in _fetchedMessages)
+                {
+                    UpdateRecordDisplayKey(m);
+                }
                 ApplyMessageKeywordFilter();
 
                 TxtExplorerSummary.Text = $"[{topic.Name}] {res.Summary}";
@@ -865,6 +1193,7 @@ namespace KafkaLauncher
             {
                 DgMessages.ItemsSource = _fetchedMessages
                     .Where(m =>
+                        (m.DisplayKey != null && m.DisplayKey.IndexOf(kw, StringComparison.OrdinalIgnoreCase) >= 0) ||
                         (m.KeyText != null && m.KeyText.IndexOf(kw, StringComparison.OrdinalIgnoreCase) >= 0) ||
                         (m.ValueText != null && m.ValueText.IndexOf(kw, StringComparison.OrdinalIgnoreCase) >= 0))
                     .ToList();
@@ -895,7 +1224,9 @@ namespace KafkaLauncher
             }
 
             TxtSelectedMsgMeta.Text = $"Partition {msg.Partition}  |  Offset {msg.Offset}  |  {msg.TimestampText} ({msg.TimestampType})  |  {msg.SizeBytes} B  |  Headers: {msg.HeaderCount}";
-            TxtDetailKey.Text = msg.KeyText;
+            TxtDetailKey.Text = !string.IsNullOrEmpty(_currentJsonExtractPath) && !string.Equals(msg.DisplayKey, msg.KeyText, StringComparison.Ordinal)
+                ? $"{msg.DisplayKey}   [Record Key: {msg.KeyText}]"
+                : msg.KeyText;
             TxtDetailValue.Text = FormatMessageForView(
                 msg,
                 RbViewJson.IsChecked == true,
@@ -981,10 +1312,39 @@ namespace KafkaLauncher
             }
         }
 
-        private void OnLiveMessageReceived(KafkaMessageRecord record)
+        private void EnqueueLiveMessage(KafkaMessageRecord record)
         {
-            _liveMessageTotalCount++;
-            _liveMessages.Add(record);
+            if (_isClosing || record == null) return;
+            lock (_liveLock)
+            {
+                _pendingLiveMessages.Enqueue(record);
+                while (_pendingLiveMessages.Count > MaxLiveMessages)
+                {
+                    _pendingLiveMessages.Dequeue();
+                }
+            }
+        }
+
+        private void FlushPendingLiveMessages()
+        {
+            List<KafkaMessageRecord> batch = null;
+            lock (_liveLock)
+            {
+                if (_pendingLiveMessages.Count == 0) return;
+                batch = new List<KafkaMessageRecord>(_pendingLiveMessages.Count);
+                while (_pendingLiveMessages.Count > 0)
+                {
+                    batch.Add(_pendingLiveMessages.Dequeue());
+                }
+            }
+
+            foreach (var record in batch)
+            {
+                UpdateRecordDisplayKey(record);
+                _liveMessageTotalCount++;
+                _liveMessages.Add(record);
+            }
+
             while (_liveMessages.Count > MaxLiveMessages)
             {
                 _liveMessages.RemoveAt(0);
@@ -1017,6 +1377,10 @@ namespace KafkaLauncher
 
         private void BtnClearConsumerLog_Click(object sender, RoutedEventArgs e)
         {
+            lock (_liveLock)
+            {
+                _pendingLiveMessages.Clear();
+            }
             _liveMessages.Clear();
             _liveMessageTotalCount = 0;
             TxtConsumerCount.Text = "(0 msgs)";
@@ -1044,7 +1408,7 @@ namespace KafkaLauncher
                 return;
             }
 
-            TxtLiveSelectedMeta.Text = $"Partition {msg.Partition}  |  Offset {msg.Offset}  |  Key: {msg.KeyText}  |  {msg.TimestampText}";
+            TxtLiveSelectedMeta.Text = $"Partition {msg.Partition}  |  Offset {msg.Offset}  |  Key: {msg.DisplayKey}  |  {msg.TimestampText}";
             TxtLiveDetailValue.Text = FormatMessageForView(
                 msg,
                 RbLiveJson.IsChecked == true,
@@ -1101,7 +1465,7 @@ namespace KafkaLauncher
                     CboPartition.SelectedIndex = targetIndex;
                 }
                 CboFetchMode.SelectedIndex = 0; // 최신 N건
-                ExplorerTabs.SelectedIndex = 0; // 메시지 탐색 탭으로 이동
+                ExplorerTabs.SelectedIndex = 1; // 메시지 탐색 탭으로 이동
                 await FetchMessagesAsync();
             }
         }
@@ -1246,6 +1610,8 @@ namespace KafkaLauncher
                 }
 
                 _isClosing = true;
+                _uiFlushTimer.Stop();
+                _dashboardTimer.Stop();
                 _liveConsumer.StopSync();
 
                 if (answer == MessageBoxResult.Yes)
@@ -1256,6 +1622,8 @@ namespace KafkaLauncher
             else
             {
                 _isClosing = true;
+                _uiFlushTimer.Stop();
+                _dashboardTimer.Stop();
                 _liveConsumer.StopSync();
             }
         }

@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Diagnostics;
 using System.IO;
+using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 
@@ -305,7 +306,7 @@ namespace KafkaLauncher
                     return new KRaftFormatResult
                     {
                         Success = false,
-                        Message = "클러스터 UUID 생성에 실패했습니다: " + err
+                        Message = FormatJavaVersionHintIfNeeded("클러스터 UUID 생성에 실패했습니다: " + err, err)
                     };
                 }
 
@@ -315,19 +316,26 @@ namespace KafkaLauncher
 
                 if (string.IsNullOrEmpty(resolvedId))
                 {
+                    string errDetail = (uuidResult.StdErr ?? string.Empty).Trim();
+                    if (!string.IsNullOrEmpty(errDetail))
+                        OnError("[KRaft] UUID 생성 오류: " + errDetail);
                     PublishCombinedState();
+                    string baseMsg = string.IsNullOrEmpty(errDetail)
+                        ? "생성된 클러스터 UUID를 파싱하지 못했습니다."
+                        : "클러스터 UUID 생성에 실패했습니다:\n" + errDetail;
                     return new KRaftFormatResult
                     {
                         Success = false,
-                        Message = "생성된 클러스터 UUID를 파싱하지 못했습니다."
+                        Message = FormatJavaVersionHintIfNeeded(baseMsg, errDetail)
                     };
                 }
 
                 OnOutput($"[KRaft] 생성된 Cluster ID: {resolvedId}");
             }
 
+            string standaloneFlag = NeedsKRaftStandaloneFlag(kraftConfigPath) ? " --standalone" : string.Empty;
             string ignoreFlag = ignoreFormatted ? " --ignore-formatted" : string.Empty;
-            string formatArgs = $"format -t {resolvedId} -c \"{kraftConfigPath}\"{ignoreFlag}";
+            string formatArgs = $"format{standaloneFlag} -t {resolvedId} -c \"{kraftConfigPath}\"{ignoreFlag}";
             OnOutput($"[KRaft] 스토리지 포맷 실행: kafka-storage.bat {formatArgs}");
 
             var formatResult = await RunCliCommandAsync(storageBat, formatArgs, 30000, customJavaHome: resolvedJavaHome);
@@ -354,10 +362,162 @@ namespace KafkaLauncher
             {
                 Success = false,
                 ClusterId = resolvedId,
-                Message = string.IsNullOrWhiteSpace(formatResult.StdErr)
-                    ? (formatResult.StdOut ?? "KRaft 스토리지 포맷 실패").Trim()
-                    : formatResult.StdErr.Trim()
+                Message = FormatJavaVersionHintIfNeeded(
+                    string.IsNullOrWhiteSpace(formatResult.StdErr)
+                        ? (formatResult.StdOut ?? "KRaft 스토리지 포맷 실패").Trim()
+                        : formatResult.StdErr.Trim(),
+                    formatResult.StdErr)
             };
+        }
+
+        private static string FormatJavaVersionHintIfNeeded(string message, string stderr)
+        {
+            string combined = (message ?? string.Empty) + "\n" + (stderr ?? string.Empty);
+            if (combined.IndexOf("UnsupportedClassVersionError", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                combined.IndexOf("class file version", StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                return message + "\n\n[안내] 현재 선택된 Java 버전이 Kafka 버전보다 낮습니다. Kafka 4.x는 Java 17 이상이 필요하므로 'JDK 경로 (선택)'에 JDK 17/21(Portable JDK)을 지정해 주세요.";
+            }
+            return message;
+        }
+
+        public static System.Collections.Generic.List<string> ParsePropertyDirectories(string propertiesPath, string key)
+        {
+            var result = new System.Collections.Generic.List<string>();
+            if (string.IsNullOrWhiteSpace(propertiesPath) || !File.Exists(propertiesPath))
+                return result;
+
+            string driveRoot = Path.GetPathRoot(Path.GetFullPath(propertiesPath));
+
+            foreach (string rawLine in File.ReadAllLines(propertiesPath))
+            {
+                string line = rawLine.Trim();
+                if (line.Length == 0 || line.StartsWith("#")) continue;
+
+                int eq = line.IndexOf('=');
+                if (eq <= 0) continue;
+
+                string k = line.Substring(0, eq).Trim();
+                if (!string.Equals(k, key, StringComparison.OrdinalIgnoreCase)) continue;
+
+                string val = line.Substring(eq + 1).Trim();
+                foreach (string part in val.Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries))
+                {
+                    string rawDir = part.Trim();
+                    if (string.IsNullOrEmpty(rawDir)) continue;
+
+                    // Windows에서 Java는 /tmp/... 형태를 현재 드라이브 루트(예: E:\tmp\...)로 해석
+                    string normalized;
+                    if (rawDir.StartsWith("/") && !rawDir.StartsWith("//") && !string.IsNullOrEmpty(driveRoot))
+                    {
+                        normalized = Path.GetFullPath(Path.Combine(driveRoot, rawDir.TrimStart('/').Replace('/', '\\')));
+                    }
+                    else
+                    {
+                        normalized = Path.GetFullPath(rawDir.Replace('/', '\\'));
+                    }
+
+                    if (!result.Contains(normalized, System.StringComparer.OrdinalIgnoreCase))
+                        result.Add(normalized);
+                }
+            }
+
+            return result;
+        }
+
+        public static bool IsSafeDataDirectory(string dirPath)
+        {
+            if (string.IsNullOrWhiteSpace(dirPath)) return false;
+            try
+            {
+                string full = Path.GetFullPath(dirPath).TrimEnd('\\', '/');
+                string root = (Path.GetPathRoot(full) ?? string.Empty).TrimEnd('\\', '/');
+                if (string.Equals(full, root, StringComparison.OrdinalIgnoreCase))
+                    return false; // 드라이브 루트(C:\, E:\ 등) 삭제 절대 금지
+
+                string winDir = Environment.GetFolderPath(Environment.SpecialFolder.Windows).TrimEnd('\\');
+                string progFiles = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles).TrimEnd('\\');
+                string userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile).TrimEnd('\\');
+
+                if (string.Equals(full, winDir, StringComparison.OrdinalIgnoreCase) ||
+                    full.StartsWith(winDir + "\\", StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(full, progFiles, StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(full, userProfile, StringComparison.OrdinalIgnoreCase))
+                    return false;
+
+                return true;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        public static Task<string> CleanDataDirectoriesAsync(System.Collections.Generic.IEnumerable<string> directories)
+        {
+            return Task.Run(() =>
+            {
+                var summary = new StringBuilder();
+                foreach (string dir in directories)
+                {
+                    if (!IsSafeDataDirectory(dir))
+                    {
+                        summary.AppendLine($"[건너뜀 - 안전 보호] {dir}");
+                        continue;
+                    }
+
+                    if (!Directory.Exists(dir))
+                    {
+                        summary.AppendLine($"[존재하지 않음] {dir}");
+                        continue;
+                    }
+
+                    try
+                    {
+                        int removedEntries = 0;
+                        foreach (string subDir in Directory.GetDirectories(dir))
+                        {
+                            Directory.Delete(subDir, recursive: true);
+                            removedEntries++;
+                        }
+                        foreach (string file in Directory.GetFiles(dir))
+                        {
+                            File.Delete(file);
+                            removedEntries++;
+                        }
+                        summary.AppendLine($"[초기화 완료] {dir} ({removedEntries}개 항목 삭제)");
+                    }
+                    catch (Exception ex)
+                    {
+                        summary.AppendLine($"[삭제 실패] {dir} → {ex.Message}");
+                    }
+                }
+                return summary.ToString().TrimEnd();
+            });
+        }
+
+        private static bool NeedsKRaftStandaloneFlag(string configPath)
+        {
+            try
+            {
+                bool hasBootstrapQuorum = false;
+                bool hasStaticVoters = false;
+                foreach (string rawLine in File.ReadAllLines(configPath))
+                {
+                    string line = rawLine.Trim();
+                    if (line.Length == 0 || line.StartsWith("#")) continue;
+                    if (line.StartsWith("controller.quorum.bootstrap.servers=", StringComparison.OrdinalIgnoreCase))
+                        hasBootstrapQuorum = true;
+                    else if (line.StartsWith("controller.quorum.voters=", StringComparison.OrdinalIgnoreCase))
+                        hasStaticVoters = true;
+                }
+                // Kafka 4.x 동적 쿼럼 기본 설정(controller.quorum.bootstrap.servers)은 --standalone 플래그가 필요
+                return hasBootstrapQuorum && !hasStaticVoters;
+            }
+            catch
+            {
+                return false;
+            }
         }
 
         public static string NormalizeJavaHome(string inputPath)

@@ -515,12 +515,12 @@
                                 <ColumnDefinition Width="Auto"/>
                             </Grid.ColumnDefinitions>
 
-                            <DockPanel Grid.Row="0" Grid.ColumnSpan="3" Margin="0,0,0,8">
+                            <DockPanel Grid.Row="0" Grid.ColumnSpan="3" LastChildFill="False" Margin="0,0,0,8">
                                 <TextBlock Style="{StaticResource H2}" Text="Kafka Root 경로" DockPanel.Dock="Left" VerticalAlignment="Center"/>
-                                <StackPanel Orientation="Horizontal" DockPanel.Dock="Right">
+                                <StackPanel Orientation="Horizontal" DockPanel.Dock="Right" VerticalAlignment="Center">
                                     <TextBlock Style="{StaticResource H2}" Text="실행 모드: " VerticalAlignment="Center" Margin="0,0,8,0"/>
-                                    <RadioButton x:Name="RbModeZk" Content="Zookeeper 모드" GroupName="RunMode" Margin="0,0,14,0" Checked="RunMode_Changed"/>
-                                    <RadioButton x:Name="RbModeKRaft" Content="KRaft 모드 (Kafka 3.3+)" GroupName="RunMode" Checked="RunMode_Changed"/>
+                                    <RadioButton x:Name="RbModeZk" Content="Zookeeper 모드" GroupName="RunMode" Style="{StaticResource PillRadio}" Margin="0,0,6,0" Checked="RunMode_Changed"/>
+                                    <RadioButton x:Name="RbModeKRaft" Content="KRaft 모드 (Kafka 3.3+)" GroupName="RunMode" Style="{StaticResource PillRadio}" Margin="0" Checked="RunMode_Changed"/>
                                 </StackPanel>
                             </DockPanel>
 
@@ -566,7 +566,7 @@
                                 <ColumnDefinition Width="Auto"/>
                             </Grid.ColumnDefinitions>
 
-                            <DockPanel Grid.Row="0" Grid.ColumnSpan="6" Margin="0,0,0,8">
+                            <DockPanel Grid.Row="0" Grid.ColumnSpan="6" LastChildFill="False" Margin="0,0,0,8">
                                 <TextBlock Style="{StaticResource H2}" Text="실행 설정" DockPanel.Dock="Left" VerticalAlignment="Center"/>
                                 <TextBlock x:Name="TxtJavaDetail" DockPanel.Dock="Right" FontSize="11.5" Foreground="{StaticResource Subtle}" VerticalAlignment="Center"
                                            Text="Java 환경 확인 중..."/>
@@ -676,11 +676,22 @@
 
                                 <Button x:Name="BtnStopAll"
                                         Style="{StaticResource DangerButton}"
-                                        MinWidth="112" Height="34"
+                                        MinWidth="112" Height="34" Margin="0,0,8,0"
                                         Click="BtnStopAll_Click">
                                     <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
                                         <TextBlock Style="{StaticResource Glyph}" Text="&#xE711;"/>
                                         <TextBlock Text="모두 종료" VerticalAlignment="Center"/>
+                                    </StackPanel>
+                                </Button>
+
+                                <Button x:Name="BtnCleanData"
+                                        Style="{StaticResource BaseButton}"
+                                        MinWidth="116" Height="34"
+                                        ToolTip="설정 파일(.properties)의 log.dirs / dataDir 경로를 안전하게 비워 Windows 로그 파일 잠금 크래시를 복구합니다."
+                                        Click="BtnCleanData_Click">
+                                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                                        <TextBlock Style="{StaticResource Glyph}" Text="&#xE74D;"/>
+                                        <TextBlock Text="데이터 초기화" VerticalAlignment="Center"/>
                                     </StackPanel>
                                 </Button>
                             </StackPanel>
@@ -693,12 +704,12 @@
                     <!-- 실행 로그 카드 -->
                     <Border Grid.Row="3" Style="{StaticResource CardStyle}" Margin="0">
                         <DockPanel LastChildFill="True">
-                            <DockPanel DockPanel.Dock="Top" Margin="0,0,0,8">
+                            <DockPanel DockPanel.Dock="Top" LastChildFill="False" Margin="0,0,0,8">
                                 <StackPanel Orientation="Horizontal" DockPanel.Dock="Left" VerticalAlignment="Center">
                                     <TextBlock Style="{StaticResource H2}" Text="실행 로그" Margin="0,0,10,0"/>
                                     <TextBlock x:Name="TxtLogCount" Text="(0 lines)" FontSize="12" Foreground="{StaticResource Subtle}"/>
                                 </StackPanel>
-                                <StackPanel Orientation="Horizontal" DockPanel.Dock="Right">
+                                <StackPanel Orientation="Horizontal" DockPanel.Dock="Right" VerticalAlignment="Center">
                                     <CheckBox x:Name="ChkAutoScroll" Content="자동 스크롤" IsChecked="True" Margin="0,0,12,0"/>
                                     <Button x:Name="BtnClearLog" Style="{StaticResource BaseButton}" Padding="10,4" Click="BtnClearLog_Click">
                                         <StackPanel Orientation="Horizontal">
@@ -711,7 +722,7 @@
 
                             <TextBox x:Name="TxtLog"
                                      IsReadOnly="True"
-                                     TextWrapping="Wrap"
+                                     TextWrapping="NoWrap"
                                      AcceptsReturn="True"
                                      FontFamily="Consolas"
                                      FontSize="12"
@@ -721,7 +732,7 @@
                                      BorderBrush="#1F2636"
                                      BorderThickness="1"
                                      VerticalScrollBarVisibility="Auto"
-                                     HorizontalScrollBarVisibility="Disabled"/>
+                                     HorizontalScrollBarVisibility="Auto"/>
                         </DockPanel>
                     </Border>
                 </Grid>
@@ -739,16 +750,25 @@
                     <Border Grid.Row="0" Style="{StaticResource CardStyle}">
                         <DockPanel LastChildFill="False">
                             <StackPanel Orientation="Horizontal" DockPanel.Dock="Left" VerticalAlignment="Center">
-                                <TextBlock Text="Bootstrap Server" Foreground="{StaticResource Subtle}" VerticalAlignment="Center" Margin="0,0,8,0"/>
-                                <TextBox x:Name="TxtBootstrapServer" Style="{StaticResource DarkTextBox}" Width="230" Height="30" Text="localhost:9092" Margin="0,0,8,0"/>
-                                <Button x:Name="BtnConnectCluster" Style="{StaticResource AccentButton}" Height="30" Margin="0,0,12,0" Click="BtnConnectCluster_Click">
+                                <TextBlock Text="Bootstrap" Foreground="{StaticResource Subtle}" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                                <TextBox x:Name="TxtBootstrapServer" Style="{StaticResource DarkTextBox}" Width="170" Height="28" Text="localhost:9092" Margin="0,0,8,0"/>
+                                <Button x:Name="BtnConnectCluster" Style="{StaticResource AccentButton}" Height="28" Padding="10,3" Margin="0,0,10,0" Click="BtnConnectCluster_Click">
                                     <StackPanel Orientation="Horizontal">
                                         <TextBlock Style="{StaticResource Glyph}" Text="&#xE72C;"/>
                                         <TextBlock Text="연결 / 새로고침" VerticalAlignment="Center"/>
                                     </StackPanel>
                                 </Button>
-                                <CheckBox x:Name="ChkHideInternalTopics" Content="내부 토픽(__*) 숨기기" IsChecked="True"
+                                <CheckBox x:Name="ChkHideInternalTopics" Content="내부 토픽 숨김" IsChecked="True" Margin="0,0,12,0"
                                           Checked="ChkHideInternalTopics_Changed" Unchecked="ChkHideInternalTopics_Changed"/>
+                                <TextBlock Text="Key 표시 경로" Foreground="{StaticResource Subtle}" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                                <TextBox x:Name="TxtJsonExtractPath" Style="{StaticResource DarkTextBox}" Width="125" Height="28" Margin="0,0,6,0"
+                                         ToolTip="JSON(head.key) 또는 XML(//head/key, head.key) 경로를 입력하면 Key 컬럼에 해당 값을 표시합니다. 비우면 Kafka 원본 Key 표시"
+                                         KeyDown="TxtJsonExtractPath_KeyDown"/>
+                                <Button x:Name="BtnApplyJsonPath" Style="{StaticResource BaseButton}" Height="28" Padding="9,2"
+                                        ToolTip="입력한 JSON/XML 경로를 Key 컬럼 표시 규칙으로 즉시 적용합니다."
+                                        Click="BtnApplyJsonPath_Click">
+                                    <TextBlock Text="적용" FontSize="12"/>
+                                </Button>
                             </StackPanel>
 
                             <StackPanel Orientation="Horizontal" DockPanel.Dock="Right" VerticalAlignment="Center">
@@ -770,7 +790,7 @@
                         <!-- 좌측: 토픽 목록 & 생성/삭제 -->
                         <Border Grid.Column="0" Style="{StaticResource CardStyle}" Margin="0">
                             <DockPanel LastChildFill="True">
-                                <DockPanel DockPanel.Dock="Top" Margin="0,0,0,6">
+                                <DockPanel DockPanel.Dock="Top" LastChildFill="False" Margin="0,0,0,6">
                                     <TextBlock Style="{StaticResource H2}" Text="토픽 목록" DockPanel.Dock="Left" VerticalAlignment="Center"/>
                                     <TextBlock x:Name="TxtTopicCount" Text="0개" FontSize="11.5" Foreground="{StaticResource Subtle}" DockPanel.Dock="Right" VerticalAlignment="Center"/>
                                 </DockPanel>
@@ -861,9 +881,143 @@
 
                         <GridSplitter Grid.Column="1" Width="8" HorizontalAlignment="Stretch" Background="Transparent" Cursor="SizeWE"/>
 
-                        <!-- 우측: Offset Explorer 4개 서브탭 -->
+                        <!-- 우측: Offset Explorer 5개 서브탭 -->
                         <Border Grid.Column="2" Style="{StaticResource CardStyle}" Margin="0">
-                            <TabControl x:Name="ExplorerTabs">
+                            <TabControl x:Name="ExplorerTabs" SelectionChanged="ExplorerTabs_SelectionChanged">
+
+                                <!-- ===== 서브탭 0: 클러스터 상태 (Kafka UI 스타일 대시보드) ===== -->
+                                <TabItem Header="클러스터 상태">
+                                    <Grid>
+                                        <Grid.RowDefinitions>
+                                            <RowDefinition Height="Auto"/>
+                                            <RowDefinition Height="Auto"/>
+                                            <RowDefinition Height="145" MinHeight="100"/>
+                                            <RowDefinition Height="8"/>
+                                            <RowDefinition Height="*" MinHeight="120"/>
+                                        </Grid.RowDefinitions>
+
+                                        <!-- 상단 상태 바 -->
+                                        <DockPanel Grid.Row="0" LastChildFill="False" Margin="0,0,0,8">
+                                            <StackPanel Orientation="Horizontal" DockPanel.Dock="Left" VerticalAlignment="Center">
+                                                <Border x:Name="PillDashHealth" Background="#1A202E" BorderBrush="#263149" BorderThickness="1" CornerRadius="10" Padding="10,3" Margin="0,0,10,0">
+                                                    <StackPanel Orientation="Horizontal">
+                                                        <Ellipse x:Name="DotDashHealth" Width="8" Height="8" Fill="#5A6478" Margin="0,0,6,0" VerticalAlignment="Center"/>
+                                                        <TextBlock x:Name="TxtDashHealth" Text="미조회" FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource Subtle}"/>
+                                                    </StackPanel>
+                                                </Border>
+                                                <TextBlock x:Name="TxtDashUpdated" Text="'새로고침' 또는 상단 '연결 / 새로고침'을 눌러 클러스터 상태를 확인하세요."
+                                                           FontSize="12" Foreground="{StaticResource Subtle}" VerticalAlignment="Center"/>
+                                            </StackPanel>
+
+                                            <StackPanel Orientation="Horizontal" DockPanel.Dock="Right" VerticalAlignment="Center">
+                                                <CheckBox x:Name="ChkDashboardCountMessages" Content="전체 메시지 수 집계" Margin="0,0,10,0"
+                                                          ToolTip="40파티션 이하 소규모 클러스터는 자동 집계되며, 대규모 원격 클러스터에서는 체크 시에만 전체 토픽 메시지 수를 집계합니다."/>
+                                                <CheckBox x:Name="ChkDashboardAutoRefresh" Content="자동 갱신 (5초)" Margin="0,0,10,0"
+                                                          Checked="ChkDashboardAutoRefresh_Changed" Unchecked="ChkDashboardAutoRefresh_Changed"/>
+                                                <Button x:Name="BtnRefreshDashboard" Style="{StaticResource AccentButton}" Height="28" Padding="12,3" Click="BtnRefreshDashboard_Click">
+                                                    <StackPanel Orientation="Horizontal">
+                                                        <TextBlock Style="{StaticResource Glyph}" Text="&#xE72C;" FontSize="12"/>
+                                                        <TextBlock Text="상태 새로고침" FontSize="12" VerticalAlignment="Center"/>
+                                                    </StackPanel>
+                                                </Button>
+                                            </StackPanel>
+                                        </DockPanel>
+
+                                        <!-- 5개 KPI 요약 카드 -->
+                                        <UniformGrid Grid.Row="1" Columns="5" Margin="0,0,0,10">
+                                            <Border Background="#10141E" BorderBrush="#222B3F" BorderThickness="1" CornerRadius="9" Padding="10,8" Margin="0,0,6,0">
+                                                <StackPanel>
+                                                    <TextBlock Text="Brokers" FontSize="11.5" Foreground="{StaticResource Subtle}"/>
+                                                    <TextBlock x:Name="TxtKpiBrokers" Text="-" FontSize="22" FontWeight="Bold" Foreground="{StaticResource Accent2}" Margin="0,2,0,2"/>
+                                                    <TextBlock x:Name="TxtKpiBrokersSub" Text="Online" FontSize="11" Foreground="{StaticResource Subtle}"/>
+                                                </StackPanel>
+                                            </Border>
+
+                                            <Border Background="#10141E" BorderBrush="#222B3F" BorderThickness="1" CornerRadius="9" Padding="10,8" Margin="3,0,6,0">
+                                                <StackPanel>
+                                                    <TextBlock Text="Topics" FontSize="11.5" Foreground="{StaticResource Subtle}"/>
+                                                    <TextBlock x:Name="TxtKpiTopics" Text="-" FontSize="22" FontWeight="Bold" Foreground="{StaticResource Accent}" Margin="0,2,0,2"/>
+                                                    <TextBlock x:Name="TxtKpiTopicsSub" Text="전체: -" FontSize="11" Foreground="{StaticResource Subtle}"/>
+                                                </StackPanel>
+                                            </Border>
+
+                                            <Border Background="#10141E" BorderBrush="#222B3F" BorderThickness="1" CornerRadius="9" Padding="10,8" Margin="3,0,6,0">
+                                                <StackPanel>
+                                                    <TextBlock Text="Partitions" FontSize="11.5" Foreground="{StaticResource Subtle}"/>
+                                                    <TextBlock x:Name="TxtKpiPartitions" Text="-" FontSize="22" FontWeight="Bold" Foreground="{StaticResource Text}" Margin="0,2,0,2"/>
+                                                    <TextBlock x:Name="TxtKpiPartitionsSub" Text="URP: 0 · Offline: 0" FontSize="11" Foreground="{StaticResource Subtle}"/>
+                                                </StackPanel>
+                                            </Border>
+
+                                            <Border Background="#10141E" BorderBrush="#222B3F" BorderThickness="1" CornerRadius="9" Padding="10,8" Margin="3,0,6,0">
+                                                <StackPanel>
+                                                    <TextBlock Text="Messages" FontSize="11.5" Foreground="{StaticResource Subtle}"/>
+                                                    <TextBlock x:Name="TxtKpiMessages" Text="-" FontSize="22" FontWeight="Bold" Foreground="#56CCF2" Margin="0,2,0,2"/>
+                                                    <TextBlock x:Name="TxtKpiMessagesSub" Text="조회 토픽 합계" FontSize="11" Foreground="{StaticResource Subtle}"/>
+                                                </StackPanel>
+                                            </Border>
+
+                                            <Border Background="#10141E" BorderBrush="#222B3F" BorderThickness="1" CornerRadius="9" Padding="10,8" Margin="3,0,0,0">
+                                                <StackPanel>
+                                                    <TextBlock Text="Consumer Groups" FontSize="11.5" Foreground="{StaticResource Subtle}"/>
+                                                    <TextBlock x:Name="TxtKpiGroups" Text="-" FontSize="22" FontWeight="Bold" Foreground="#B388FF" Margin="0,2,0,2"/>
+                                                    <TextBlock x:Name="TxtKpiGroupsSub" Text="Stable: -" FontSize="11" Foreground="{StaticResource Subtle}"/>
+                                                </StackPanel>
+                                            </Border>
+                                        </UniformGrid>
+
+                                        <!-- Brokers 테이블 -->
+                                        <DockPanel Grid.Row="2" LastChildFill="True">
+                                            <TextBlock DockPanel.Dock="Top" Style="{StaticResource H2}" Text="Brokers" Margin="0,0,0,5"/>
+                                            <DataGrid x:Name="DgDashBrokers" Style="{StaticResource DarkDataGrid}">
+                                                <DataGrid.Columns>
+                                                    <DataGridTextColumn Header="Broker ID" Binding="{Binding BrokerId}" Width="86"/>
+                                                    <DataGridTextColumn Header="Host" Binding="{Binding Host}" Width="*"/>
+                                                    <DataGridTextColumn Header="Port" Binding="{Binding Port}" Width="82"/>
+                                                    <DataGridTextColumn Header="Leader Partitions" Binding="{Binding LeaderPartitions}" Width="126"/>
+                                                    <DataGridTextColumn Header="Total Replicas" Binding="{Binding TotalReplicas}" Width="116"/>
+                                                    <DataGridTextColumn Header="Status" Binding="{Binding Status}" Width="86">
+                                                        <DataGridTextColumn.ElementStyle>
+                                                            <Style TargetType="TextBlock">
+                                                                <Setter Property="Foreground" Value="#34C38F"/>
+                                                                <Setter Property="FontWeight" Value="SemiBold"/>
+                                                            </Style>
+                                                        </DataGridTextColumn.ElementStyle>
+                                                    </DataGridTextColumn>
+                                                </DataGrid.Columns>
+                                            </DataGrid>
+                                        </DockPanel>
+
+                                        <GridSplitter Grid.Row="3" Height="8" HorizontalAlignment="Stretch" Background="Transparent" Cursor="SizeNS"/>
+
+                                        <!-- Topics 요약 테이블 -->
+                                        <DockPanel Grid.Row="4" LastChildFill="True">
+                                            <TextBlock DockPanel.Dock="Top" Style="{StaticResource H2}" Text="Topics 현황 (행을 더블클릭하면 메시지 탐색으로 이동)" Margin="0,0,0,5"/>
+                                            <DataGrid x:Name="DgDashTopics" Style="{StaticResource DarkDataGrid}" MouseDoubleClick="DgDashTopics_MouseDoubleClick">
+                                                <DataGrid.Columns>
+                                                    <DataGridTextColumn Header="Topic" Binding="{Binding TopicName}" Width="*"/>
+                                                    <DataGridTextColumn Header="Partitions" Binding="{Binding PartitionCount}" Width="86"/>
+                                                    <DataGridTextColumn Header="RF" Binding="{Binding ReplicationFactor}" Width="56"/>
+                                                    <DataGridTextColumn Header="Messages" Binding="{Binding MessageCountDisplay}" Width="112"/>
+                                                    <DataGridTextColumn Header="URP" Binding="{Binding UnderReplicatedPartitions}" Width="66">
+                                                        <DataGridTextColumn.ElementStyle>
+                                                            <Style TargetType="TextBlock">
+                                                                <Setter Property="Foreground" Value="#34C38F"/>
+                                                                <Style.Triggers>
+                                                                    <DataTrigger Binding="{Binding HasIssue}" Value="True">
+                                                                        <Setter Property="Foreground" Value="#F5A623"/>
+                                                                        <Setter Property="FontWeight" Value="Bold"/>
+                                                                    </DataTrigger>
+                                                                </Style.Triggers>
+                                                            </Style>
+                                                        </DataGridTextColumn.ElementStyle>
+                                                    </DataGridTextColumn>
+                                                    <DataGridTextColumn Header="Offline" Binding="{Binding OfflinePartitions}" Width="66"/>
+                                                </DataGrid.Columns>
+                                            </DataGrid>
+                                        </DockPanel>
+                                    </Grid>
+                                </TabItem>
 
                                 <!-- ===== 서브탭 1: 메시지 탐색 (Offset Explorer) ===== -->
                                 <TabItem Header="메시지 탐색">
@@ -885,23 +1039,28 @@
 
                                             <StackPanel Orientation="Horizontal" Margin="0,0,10,4">
                                                 <TextBlock Text="방식" Foreground="{StaticResource Subtle}" VerticalAlignment="Center" Margin="0,0,6,0"/>
-                                                <ComboBox x:Name="CboFetchMode" Style="{StaticResource DarkComboBox}" Width="116" SelectionChanged="CboFetchMode_SelectionChanged">
+                                                <ComboBox x:Name="CboFetchMode" Style="{StaticResource DarkComboBox}" Width="130" SelectionChanged="CboFetchMode_SelectionChanged">
                                                     <ComboBoxItem Content="최신 N건" IsSelected="True"/>
                                                     <ComboBoxItem Content="처음부터"/>
                                                     <ComboBoxItem Content="지정 오프셋"/>
+                                                    <ComboBoxItem Content="단일 오프셋 (1건)"/>
                                                 </ComboBox>
                                             </StackPanel>
 
                                             <StackPanel x:Name="PnlSpecificOffset" Orientation="Horizontal" Margin="0,0,10,4" Visibility="Collapsed">
                                                 <TextBlock Text="오프셋" Foreground="{StaticResource Subtle}" VerticalAlignment="Center" Margin="0,0,6,0"/>
-                                                <Button x:Name="BtnOffsetPrev" Style="{StaticResource BaseButton}" Content="&lt;" Height="28" Padding="7,2" Margin="0,0,4,0" ToolTip="이전 구간 오프셋" Click="BtnOffsetPrev_Click"/>
-                                                <TextBox x:Name="TxtSpecificOffset" Style="{StaticResource DarkTextBox}" Width="74" Height="28" Text="0" Margin="0,0,4,0"/>
-                                                <Button x:Name="BtnOffsetNext" Style="{StaticResource BaseButton}" Content="&gt;" Height="28" Padding="7,2" ToolTip="다음 구간 오프셋" Click="BtnOffsetNext_Click"/>
+                                                <Button x:Name="BtnOffsetPrev" Style="{StaticResource BaseButton}" Content="&lt;" Height="28" Padding="7,2" Margin="0,0,4,0" ToolTip="이전 오프셋" Click="BtnOffsetPrev_Click"/>
+                                                <TextBox x:Name="TxtSpecificOffset" Style="{StaticResource DarkTextBox}" Width="78" Height="28" Text="0" Margin="0,0,4,0"
+                                                         ToolTip="오프셋 번호 입력 후 Enter 키로 바로 조회"
+                                                         KeyDown="TxtSpecificOffset_KeyDown"/>
+                                                <Button x:Name="BtnOffsetNext" Style="{StaticResource BaseButton}" Content="&gt;" Height="28" Padding="7,2" ToolTip="다음 오프셋" Click="BtnOffsetNext_Click"/>
                                             </StackPanel>
 
-                                            <StackPanel Orientation="Horizontal" Margin="0,0,10,4">
+                                            <StackPanel x:Name="PnlMaxMessages" Orientation="Horizontal" Margin="0,0,10,4">
                                                 <TextBlock Text="개수" Foreground="{StaticResource Subtle}" VerticalAlignment="Center" Margin="0,0,6,0"/>
                                                 <ComboBox x:Name="CboMaxMessages" Style="{StaticResource DarkComboBox}" Width="72">
+                                                    <ComboBoxItem Content="1"/>
+                                                    <ComboBoxItem Content="10"/>
                                                     <ComboBoxItem Content="20"/>
                                                     <ComboBoxItem Content="50" IsSelected="True"/>
                                                     <ComboBoxItem Content="100"/>
@@ -938,7 +1097,7 @@
                                                 <DataGridTextColumn Header="P" Binding="{Binding Partition}" Width="40"/>
                                                 <DataGridTextColumn Header="Offset" Binding="{Binding Offset}" Width="78"/>
                                                 <DataGridTextColumn Header="Timestamp" Binding="{Binding TimestampText}" Width="168"/>
-                                                <DataGridTextColumn Header="Key" Binding="{Binding KeyText}" Width="130"/>
+                                                <DataGridTextColumn x:Name="ColMsgKey" Header="Key" Binding="{Binding DisplayKey}" Width="170"/>
                                                 <DataGridTextColumn Header="Value (미리보기)" Binding="{Binding ValuePreview}" Width="*"/>
                                                 <DataGridTextColumn Header="Size" Binding="{Binding SizeBytes, StringFormat={}{0} B}" Width="66"/>
                                                 <DataGridTextColumn Header="Hdr" Binding="{Binding HeaderCount}" Width="42"/>
@@ -955,7 +1114,7 @@
                                                                FontSize="11.5" Foreground="#8DB5F8" FontFamily="Consolas"
                                                                Text="메시지를 선택하면 상세 내용(JSON Pretty / Raw / Hex / Headers)이 표시됩니다."/>
                                                     <StackPanel Orientation="Horizontal" DockPanel.Dock="Right" VerticalAlignment="Center">
-                                                        <RadioButton x:Name="RbViewJson" Content="JSON" GroupName="ExpViewMode" Style="{StaticResource PillRadio}" IsChecked="True" Checked="ExplorerViewMode_Changed"/>
+                                                        <RadioButton x:Name="RbViewJson" Content="Pretty" ToolTip="JSON / XML 자동 들여쓰기 정렬" GroupName="ExpViewMode" Style="{StaticResource PillRadio}" IsChecked="True" Checked="ExplorerViewMode_Changed"/>
                                                         <RadioButton x:Name="RbViewRaw" Content="Raw" GroupName="ExpViewMode" Style="{StaticResource PillRadio}" Checked="ExplorerViewMode_Changed"/>
                                                         <RadioButton x:Name="RbViewHex" Content="Hex" GroupName="ExpViewMode" Style="{StaticResource PillRadio}" Checked="ExplorerViewMode_Changed"/>
                                                         <RadioButton x:Name="RbViewHeaders" Content="Headers" GroupName="ExpViewMode" Style="{StaticResource PillRadio}" Checked="ExplorerViewMode_Changed"/>
@@ -1025,7 +1184,7 @@
                                                 <DataGridTextColumn Header="P" Binding="{Binding Partition}" Width="40"/>
                                                 <DataGridTextColumn Header="Offset" Binding="{Binding Offset}" Width="78"/>
                                                 <DataGridTextColumn Header="Timestamp" Binding="{Binding TimestampText}" Width="168"/>
-                                                <DataGridTextColumn Header="Key" Binding="{Binding KeyText}" Width="130"/>
+                                                <DataGridTextColumn x:Name="ColLiveKey" Header="Key" Binding="{Binding DisplayKey}" Width="170"/>
                                                 <DataGridTextColumn Header="Value (미리보기)" Binding="{Binding ValuePreview}" Width="*"/>
                                                 <DataGridTextColumn Header="Size" Binding="{Binding SizeBytes, StringFormat={}{0} B}" Width="66"/>
                                             </DataGrid.Columns>
@@ -1040,7 +1199,7 @@
                                                                FontSize="11.5" Foreground="#8DB5F8" FontFamily="Consolas"
                                                                Text="실시간 수신 행을 클릭하면 JSON Pretty / Raw / Hex 상세 내용을 볼 수 있습니다."/>
                                                     <StackPanel Orientation="Horizontal" DockPanel.Dock="Right">
-                                                        <RadioButton x:Name="RbLiveJson" Content="JSON" GroupName="LiveViewMode" Style="{StaticResource PillRadio}" IsChecked="True" Checked="LiveViewMode_Changed"/>
+                                                        <RadioButton x:Name="RbLiveJson" Content="Pretty" ToolTip="JSON / XML 자동 들여쓰기 정렬" GroupName="LiveViewMode" Style="{StaticResource PillRadio}" IsChecked="True" Checked="LiveViewMode_Changed"/>
                                                         <RadioButton x:Name="RbLiveRaw" Content="Raw" GroupName="LiveViewMode" Style="{StaticResource PillRadio}" Checked="LiveViewMode_Changed"/>
                                                         <RadioButton x:Name="RbLiveHex" Content="Hex" GroupName="LiveViewMode" Style="{StaticResource PillRadio}" Checked="LiveViewMode_Changed"/>
                                                         <Button Style="{StaticResource BaseButton}" Padding="8,3" Margin="4,0,0,0" Click="BtnCopyLiveValue_Click">
@@ -1076,7 +1235,7 @@
 
                                         <!-- 상단: 파티션 & 오프셋 정보 테이블 -->
                                         <DockPanel Grid.Row="0" LastChildFill="True">
-                                            <DockPanel DockPanel.Dock="Top" Margin="0,0,0,6">
+                                            <DockPanel DockPanel.Dock="Top" LastChildFill="False" Margin="0,0,0,6">
                                                 <TextBlock Style="{StaticResource H2}" Text="파티션 &amp; 워터마크 오프셋 (행을 더블클릭하면 해당 파티션 메시지 탐색)" DockPanel.Dock="Left" VerticalAlignment="Center"/>
                                                 <Button x:Name="BtnRefreshPartitions" DockPanel.Dock="Right" Style="{StaticResource BaseButton}" Padding="10,4" Click="BtnRefreshPartitions_Click">
                                                     <TextBlock Text="새로고침" FontSize="12"/>
@@ -1112,7 +1271,7 @@
                                                     <ColumnDefinition Width="*"/>
                                                 </Grid.ColumnDefinitions>
 
-                                                <DockPanel Grid.Row="0" Grid.ColumnSpan="4" Margin="0,0,0,8">
+                                                <DockPanel Grid.Row="0" Grid.ColumnSpan="4" LastChildFill="False" Margin="0,0,0,8">
                                                     <TextBlock Style="{StaticResource H2}" Text="테스트 메시지 발행 (선택한 토픽)" DockPanel.Dock="Left" VerticalAlignment="Center"/>
                                                     <TextBlock x:Name="TxtProduceStatus" DockPanel.Dock="Right" FontSize="11.5" Foreground="{StaticResource Accent2}" VerticalAlignment="Center"/>
                                                 </DockPanel>
